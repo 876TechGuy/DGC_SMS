@@ -933,6 +933,7 @@ def pharma_report_download():
                             default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     month = request.args.get('month', type=int, default=0)
+    status_filter = request.args.get('status', '')
     formulation_filter = request.args.get('formulation_type', '').strip()
     api_filter = request.args.get('api', '').strip()
     source_filter = request.args.get('source', '').strip()
@@ -942,6 +943,12 @@ def pharma_report_download():
         Sample.sample_type.in_([Branch.PHARMACEUTICAL, Branch.PHARMACEUTICAL_NR]),
     )
     q = _apply_certified_quarter_filter(q, year, quarter, month)
+
+    if status_filter:
+        try:
+            q = q.filter(Sample.status == SampleStatus(status_filter))
+        except ValueError:
+            pass
 
     if formulation_filter:
         q = q.filter(Sample.formulation_type.ilike(f'%{formulation_filter}%'))
@@ -1122,6 +1129,7 @@ def milk_report_download():
                             default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     month = request.args.get('month', type=int, default=0)
+    status_filter = request.args.get('status', '')
     parish_filter = request.args.get('parish', '').strip()
     milk_type_filter = request.args.get('milk_type', '').strip()
 
@@ -1129,6 +1137,12 @@ def milk_report_download():
         Sample.sample_type == Branch.FOOD_MILK,
     )
     q = _apply_certified_quarter_filter(q, year, quarter, month)
+
+    if status_filter:
+        try:
+            q = q.filter(Sample.status == SampleStatus(status_filter))
+        except ValueError:
+            pass
 
     if parish_filter:
         q = q.filter(Sample.parish.ilike(f'%{parish_filter}%'))
@@ -1311,6 +1325,7 @@ def toxicology_report_download():
                             default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     month = request.args.get('month', type=int, default=0)
+    status_filter = request.args.get('status', '')
     hospital_filter = request.args.get('hospital', '').strip()
     sample_type_filter = request.args.get('sample_type', '').strip()
     patient_name_filter = request.args.get('patient_name', '').strip()
@@ -1319,6 +1334,12 @@ def toxicology_report_download():
         Sample.sample_type == Branch.TOXICOLOGY,
     )
     q = _apply_certified_quarter_filter(q, year, quarter, month)
+
+    if status_filter:
+        try:
+            q = q.filter(Sample.status == SampleStatus(status_filter))
+        except ValueError:
+            pass
 
     if hospital_filter:
         q = q.filter(Sample.source.ilike(f'%{hospital_filter}%'))
@@ -1516,6 +1537,7 @@ def alcohol_report_download():
                             default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     month = request.args.get('month', type=int, default=0)
+    status_filter = request.args.get('status', '')
     sample_name_filter = request.args.get('sample_name', '').strip()
     alcohol_type_filter = request.args.get('alcohol_type', '').strip()
 
@@ -1523,6 +1545,12 @@ def alcohol_report_download():
         Sample.sample_type == Branch.FOOD_ALCOHOL,
     )
     q = _apply_certified_quarter_filter(q, year, quarter, month)
+
+    if status_filter:
+        try:
+            q = q.filter(Sample.status == SampleStatus(status_filter))
+        except ValueError:
+            pass
 
     if sample_name_filter:
         q = q.filter(Sample.sample_name.ilike(f'%{sample_name_filter}%'))
@@ -1774,6 +1802,7 @@ def all_branches_report_download():
     year = request.args.get('year', type=int, default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     month = request.args.get('month', type=int, default=0)
+    status_filter = request.args.get('status', '')
     branch_filter = request.args.get('branch', '')
 
     q = Sample.query
@@ -1784,6 +1813,12 @@ def all_branches_report_download():
             br = Branch[branch_filter]
             q = q.filter(Sample.sample_type == br)
         except KeyError:
+            pass
+
+    if status_filter:
+        try:
+            q = q.filter(Sample.status == SampleStatus(status_filter))
+        except ValueError:
             pass
 
     samples = q.order_by(Sample.date_registered.desc()).all()

@@ -63,7 +63,7 @@
             </div>
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
-                <a href="{{ url_for('main.toxicology_report_download', year=year, quarter=quarter, hospital=hospital_filter, sample_type=sample_type_filter, patient_name=patient_name_filter) }}"
+                <a href="{{ url_for('main.toxicology_report_download', year=year, quarter=quarter, month=month, status=status_filter, hospital=hospital_filter, sample_type=sample_type_filter, patient_name=patient_name_filter) }}"
                    class="btn btn-outline-success btn-sm ms-1">
                     <i class="bi bi-download me-1"></i>CSV
                 </a>
@@ -103,6 +103,21 @@
             <div class="text-muted small fw-semibold text-uppercase">Out of Spec</div>
             <div class="fs-4 fw-bold {% if out_of_spec_count > 0 %}text-danger{% endif %}">{{ out_of_spec_count }}</div>
         </div></div>
+    </div>
+</div>
+
+<!-- How this report is calculated -->
+<div class="alert alert-light border d-flex align-items-start gap-2 mb-4" role="note">
+    <i class="bi bi-info-circle-fill text-primary mt-1"></i>
+    <div class="small">
+        <strong>How this report is calculated</strong>
+        <ul class="mb-0 mt-1 ps-3">
+            <li><strong>Certified</strong> counts samples by their <em>certification date</em> (<code>certified_at</code>): a certified sample only appears in the financial year, quarter or month in which it was certified. Summing the certified counts of each month in a quarter therefore equals that quarter's certified total.</li>
+            <li><strong>In Progress</strong> samples (not yet certified, completed or rejected) are <em>carried forward</em> and shown in every period until they are certified, so pending work is never lost.</li>
+            <li><strong>Total</strong> = certified/completed in the selected period + all carried-forward in-progress samples + rejected samples matching the filters.</li>
+            <li><strong>Avg TAT (working days)</strong> is the mean turnaround, from date registered to certification date, of certified/completed samples only, excluding weekends and configured non-working days.</li>
+            <li><strong>Downloaded CSV</strong> contains exactly the rows matching the currently applied filters (year, quarter, month, status and the fields above) — the same data shown on screen.</li>
+        </ul>
     </div>
 </div>
 

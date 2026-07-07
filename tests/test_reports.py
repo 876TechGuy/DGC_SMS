@@ -221,6 +221,28 @@ def test_pharma_report_download_csv(app, client):
     assert b'Lab Number' in resp.data
 
 
+def test_pharma_report_download_respects_status_filter(app, client):
+    """Exported CSV must honour the status filter shown on screen."""
+    _setup_admin(app)
+    # Certified within FY2025 (certified_at 2026-02-15 -> fiscal year 2025)
+    _register_pharma_sample(app, 'PH-CERT', certified=True)
+    # Uncertified sample (carried forward)
+    _register_pharma_sample(app, 'PH-INPROG', certified=False)
+    _login(client, 'admin')
+
+    # Without a status filter both samples are exported
+    resp = client.get('/reports/pharma/download?year=2025')
+    assert resp.status_code == 200
+    assert b'PH-CERT' in resp.data
+    assert b'PH-INPROG' in resp.data
+
+    # Filtering by Certified must exclude the in-progress sample
+    resp = client.get('/reports/pharma/download?year=2025&status=Certified')
+    assert resp.status_code == 200
+    assert b'PH-CERT' in resp.data
+    assert b'PH-INPROG' not in resp.data
+
+
 def test_pharma_report_filter_formulation_api_source(app, client):
     _setup_admin(app)
     _register_pharma_sample(
