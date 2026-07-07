@@ -678,6 +678,21 @@
                            class="btn btn-outline-info btn-sm py-0 px-1">
                             <i class="bi bi-eye"></i> View
                         </a>
+                        {% if current_user.has_any_role(Role.ADMIN, Role.HOD, Role.OFFICER) or current_user.has_permission(Permission.INVOICE_GENERATE) %}
+                        <a href="{{ url_for('samples.invoice_edit', sample_id=sample.id, invoice_id=inv.id) }}"
+                           class="btn btn-outline-primary btn-sm py-0 px-1">
+                            <i class="bi bi-pencil"></i> Edit
+                        </a>
+                        <form method="POST"
+                              action="{{ url_for('samples.invoice_delete', sample_id=sample.id, invoice_id=inv.id) }}"
+                              class="d-inline"
+                              onsubmit="return confirm('Delete invoice {{ inv.invoice_number }}? This cannot be undone.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </form>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
