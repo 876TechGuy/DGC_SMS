@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
     <h2><i class="bi bi-capsule"></i> Pharmaceutical Report</h2>
-    <a href="{{ url_for('main.pharma_report_download', year=year, quarter=quarter, formulation_type=formulation_filter, api=api_filter, source=source_filter, manufacturer=manufacturer_filter) }}"
+    <a href="{{ url_for('main.pharma_report_download', year=year, quarter=quarter, month=month, status=status_filter, formulation_type=formulation_filter, api=api_filter, source=source_filter, manufacturer=manufacturer_filter) }}"
        class="btn btn-outline-primary btn-sm">
         <i class="bi bi-download me-1"></i>Download CSV
     </a>
@@ -122,6 +122,21 @@
     </div>
 </div>
 
+<!-- How this report is calculated -->
+<div class="alert alert-light border d-flex align-items-start gap-2 mb-4" role="note">
+    <i class="bi bi-info-circle-fill text-primary mt-1"></i>
+    <div class="small">
+        <strong>How this report is calculated</strong>
+        <ul class="mb-0 mt-1 ps-3">
+            <li><strong>Certified / Completed</strong> counts samples by their <em>certification date</em> (<code>certified_at</code>): a certified sample only appears in the financial year, quarter or month in which it was certified. Summing the certified counts of each month in a quarter therefore equals that quarter's certified total.</li>
+            <li><strong>In Progress</strong> samples (not yet certified, completed or rejected) are <em>carried forward</em> and shown in every period until they are certified, so pending work is never lost.</li>
+            <li><strong>Total Samples</strong> = certified/completed in the selected period + all carried-forward in-progress samples + rejected samples matching the filters.</li>
+            <li><strong>Avg. TAT (working days)</strong> is the mean turnaround, from date registered to certification date, of certified/completed samples only, excluding weekends and configured non-working days.</li>
+            <li><strong>Downloaded CSV</strong> contains exactly the rows matching the currently applied filters (year, quarter, month, status and the fields above) — the same data shown on screen.</li>
+        </ul>
+    </div>
+</div>
+
 <!-- Sample Table (Feature 2: all required fields + TAT working days) -->
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -129,7 +144,7 @@
             Pharmaceutical Samples — FY {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}{% if month %} (Month {{ month }}){% endif %}
             {% if total_pages > 1 %}<span class="text-muted ms-2 small">— page {{ page }} of {{ total_pages }}</span>{% endif %}
         </span>
-        <a href="{{ url_for('main.pharma_report_download', year=year, quarter=quarter, month=month) }}"
+        <a href="{{ url_for('main.pharma_report_download', year=year, quarter=quarter, month=month, status=status_filter, formulation_type=formulation_filter, api=api_filter, source=source_filter, manufacturer=manufacturer_filter) }}"
            class="btn btn-outline-primary btn-sm">
             <i class="bi bi-download me-1"></i>Download CSV
         </a>
