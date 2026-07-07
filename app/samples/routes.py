@@ -3304,15 +3304,50 @@ def _next_invoice_number():
     return f'{prefix}{seq:04d}'
 
 
+def _can_manage_invoices():
+    """Return True if the current user may generate/edit/delete invoices."""
+    return (
+        current_user.has_any_role(Role.ADMIN, Role.HOD, Role.OFFICER)
+        or current_user.has_permission(Permission.INVOICE_GENERATE)
+    )
+
+
+def _rebuild_invoice_items(invoice):
+    """Replace an invoice's line items with those parsed from the request form."""
+    names = request.form.getlist('item_test_name')
+    types = request.form.getlist('item_test_type')
+    costs = request.form.getlist('item_unit_cost')
+    qtys = request.form.getlist('item_quantity')
+
+    for i, name in enumerate(names):
+        if not name.strip():
+            continue
+        try:
+            unit_cost = float(costs[i]) if i < len(costs) else 0
+        except (ValueError, IndexError):
+            unit_cost = 0
+        try:
+            qty = int(qtys[i]) if i < len(qtys) else 1
+            qty = max(1, qty)
+        except (ValueError, IndexError):
+            qty = 1
+        test_type = types[i] if i < len(types) else ''
+
+        db.session.add(InvoiceItem(
+            invoice_id=invoice.id,
+            test_name=name.strip(),
+            test_type=test_type or None,
+            unit_cost=unit_cost,
+            quantity=qty,
+        ))
+
+
 @samples_bp.route('/<int:sample_id>/invoice/new', methods=['GET', 'POST'])
 @login_required
 def invoice_create(sample_id):
     """Create a new invoice for a sample."""
     sample = db.get_or_404(Sample, sample_id)
-    if not (
-        current_user.has_any_role(Role.ADMIN, Role.HOD, Role.OFFICER)
-        or current_user.has_permission(Permission.INVOICE_GENERATE)
-    ):
+    if not _can_manage_invoices():
         flash('Access denied. You are not permitted to generate invoices.', 'danger')
         return redirect(url_for('samples.detail', sample_id=sample_id))
 
@@ -3330,33 +3365,7 @@ def invoice_create(sample_id):
         db.session.add(invoice)
         db.session.flush()
 
-        # Parse line items from form data
-        names = request.form.getlist('item_test_name')
-        types = request.form.getlist('item_test_type')
-        costs = request.form.getlist('item_unit_cost')
-        qtys = request.form.getlist('item_quantity')
-
-        for i, name in enumerate(names):
-            if not name.strip():
-                continue
-            try:
-                unit_cost = float(costs[i]) if i < len(costs) else 0
-            except (ValueError, IndexError):
-                unit_cost = 0
-            try:
-                qty = int(qtys[i]) if i < len(qtys) else 1
-                qty = max(1, qty)
-            except (ValueError, IndexError):
-                qty = 1
-            test_type = types[i] if i < len(types) else ''
-
-            db.session.add(InvoiceItem(
-                invoice_id=invoice.id,
-                test_name=name.strip(),
-                test_type=test_type or None,
-                unit_cost=unit_cost,
-                quantity=qty,
-            ))
+        _rebuild_invoice_items(invoice)
 
         _add_history(
             sample, 'Invoice Created',
@@ -3396,7 +3405,85 @@ def invoice_detail(sample_id, invoice_id):
         'samples/invoice_detail.html',
         sample=sample, invoice=invoice, items=items, assignments=assignments,
         grand_total=grand_total,
+        can_manage_invoices=_can_manage_invoices(),
     )
+
+
+@samples_bp.route('/<int:sample_id>/invoice/<int:invoice_id>/edit',
+                  methods=['GET', 'POST'])
+@login_required
+def invoice_edit(sample_id, invoice_id):
+    """Edit an existing invoice."""
+    sample = db.get_or_404(Sample, sample_id)
+    invoice = db.get_or_404(Invoice, invoice_id)
+    if invoice.sample_id != sample.id:
+        abort(404)
+    if not _can_manage_invoices():
+        flash('Access denied. You are not permitted to edit invoices.', 'danger')
+        return redirect(url_for('samples.invoice_detail',
+                                sample_id=sample_id, invoice_id=invoice_id))
+
+    assignments = sample.assignments.order_by(
+        SampleAssignment.assigned_date.desc()
+    ).all()
+    form = InvoiceCreateForm(obj=invoice)
+    form.submit.label.text = 'Save Changes'
+    if form.validate_on_submit():
+        invoice.notes = form.notes.data or None
+
+        # Replace all existing line items with the submitted ones
+        for item in invoice.items.all():
+            db.session.delete(item)
+        db.session.flush()
+        _rebuild_invoice_items(invoice)
+
+        _add_history(
+            sample, 'Invoice Updated',
+            f'Invoice {invoice.invoice_number} updated by {current_user.full_name}',
+            action_type='Invoice',
+            object_affected='Invoice',
+        )
+        db.session.commit()
+        flash(f'Invoice {invoice.invoice_number} updated successfully.', 'success')
+        return redirect(url_for('samples.invoice_detail',
+                                sample_id=sample_id, invoice_id=invoice.id))
+
+    # Build pricing map for JS auto-populate
+    pricing_json = json.dumps(PHARMA_TEST_PRICES)
+    items = invoice.items.all()
+    return render_template(
+        'samples/invoice_edit.html',
+        form=form, sample=sample, invoice=invoice,
+        items=items, assignments=assignments,
+        pricing_json=pricing_json,
+    )
+
+
+@samples_bp.route('/<int:sample_id>/invoice/<int:invoice_id>/delete',
+                  methods=['POST'])
+@login_required
+def invoice_delete(sample_id, invoice_id):
+    """Delete an invoice."""
+    sample = db.get_or_404(Sample, sample_id)
+    invoice = db.get_or_404(Invoice, invoice_id)
+    if invoice.sample_id != sample.id:
+        abort(404)
+    if not _can_manage_invoices():
+        flash('Access denied. You are not permitted to delete invoices.', 'danger')
+        return redirect(url_for('samples.invoice_detail',
+                                sample_id=sample_id, invoice_id=invoice_id))
+
+    invoice_number = invoice.invoice_number
+    db.session.delete(invoice)
+    _add_history(
+        sample, 'Invoice Deleted',
+        f'Invoice {invoice_number} deleted by {current_user.full_name}',
+        action_type='Invoice',
+        object_affected='Invoice',
+    )
+    db.session.commit()
+    flash(f'Invoice {invoice_number} deleted successfully.', 'success')
+    return redirect(url_for('samples.detail', sample_id=sample_id))
 
 
 # ---------------------------------------------------------------------------
