@@ -1421,29 +1421,31 @@ def fiscal_quarter_months(quarter):
 
 
 def fiscal_year_date_range(year, quarter=None):
-    """Return (start_date, end_date) for a fiscal year or specific quarter.
+    """Return (start_datetime, end_datetime) for a fiscal year or specific quarter.
+    Start times are at midnight (00:00:00).
+    End times are at end-of-day (23:59:59) to include all samples certified during that day.
     If quarter is None, returns the full fiscal year range."""
     if quarter:
         month_start, month_end = fiscal_quarter_months(quarter)
         if quarter == 4:
-            start = date(year + 1, month_start, 1)
-            # End of March
-            end = date(year + 1, 3, 31)
+            start = datetime(year + 1, month_start, 1, 0, 0, 0)
+            # End of March at end-of-day
+            end = datetime(year + 1, 3, 31, 23, 59, 59)
         else:
-            start = date(year, month_start, 1)
-            # Last day of end month
+            start = datetime(year, month_start, 1, 0, 0, 0)
+            # Last day of end month at end-of-day
             if month_end == 6:
-                end = date(year, 6, 30)
+                end = datetime(year, 6, 30, 23, 59, 59)
             elif month_end == 9:
-                end = date(year, 9, 30)
+                end = datetime(year, 9, 30, 23, 59, 59)
             elif month_end == 12:
-                end = date(year, 12, 31)
+                end = datetime(year, 12, 31, 23, 59, 59)
             else:
-                end = date(year, month_end, 31)
+                end = datetime(year, month_end, 31, 23, 59, 59)
         return start, end
     else:
         # Full fiscal year: April 1 of year to March 31 of year+1
-        return date(year, 4, 1), date(year + 1, 3, 31)
+        return datetime(year, 4, 1, 0, 0, 0), datetime(year + 1, 3, 31, 23, 59, 59)
 
 
 # ---------------------------------------------------------------------------
