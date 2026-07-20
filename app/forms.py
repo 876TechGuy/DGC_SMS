@@ -999,7 +999,6 @@ class ReportReviewForm(FlaskForm):
             ('', '-- Select Action --'),
             ('accepted', 'Accept Report'),
             ('returned', 'Return for Correction'),
-            ('rejected', 'Reject Report'),
         ],
         validators=[DataRequired()],
     )
@@ -1046,7 +1045,6 @@ class DeputyReviewForm(FlaskForm):
         choices=[
             ('', '-- Select Action --'),
             ('approved', 'Accept Report – Proceed to Certificate'),
-            ('rejected', 'Reject Report'),
             ('returned', 'Return to Senior Chemist'),
         ],
         validators=[DataRequired()],

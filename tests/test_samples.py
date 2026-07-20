@@ -1246,7 +1246,7 @@ def test_deputy_return(app, client):
 
 
 def test_deputy_reject(app, client):
-    """Test that Deputy can reject submission."""
+    """Test that Deputy can no longer reject submission (option removed)."""
     officer_id, sc_id, chemist_id, deputy_id, hod_id = _setup_users(app)
     _login(client, 'officer')
     _register_sample(client)
@@ -1289,19 +1289,62 @@ def test_deputy_reject(app, client):
     client.post(f'/samples/{sample.id}/submit-to-deputy', data={})
     client.get('/auth/logout')
 
+    # Deputy submits 'rejected' — should be rejected by form validation
     _login(client, 'deputy')
     with app.app_context():
         sample = Sample.query.first()
     resp = client.post(f'/samples/{sample.id}/deputy-review', data={
         'action': 'rejected',
-        'review_comments': 'Not acceptable for release.',
+        'review_comments': 'Not acceptable.',
     }, follow_redirects=True)
-    assert b'Submission has been rejected.' in resp.data
-
+    # The form should fail validation (rejected is not a valid choice)
     with app.app_context():
         sample = Sample.query.first()
+        assert sample.status != SampleStatus.REJECTED
+
+
+def test_admin_unreject_sample(app, client):
+    """Test that Admin can remove rejected status and return sample to Deputy Review."""
+    # Create all users in a single app context (including admin)
+    with app.app_context():
+        _create_user(Role.OFFICER, username='officer')
+        _create_user(Role.SENIOR_CHEMIST, Branch.TOXICOLOGY, username='senior')
+        _create_user(Role.CHEMIST, Branch.TOXICOLOGY, username='chemist')
+        _create_user(Role.DEPUTY, username='deputy')
+        _create_user(Role.HOD, username='hod')
+        _create_user(Role.ADMIN, username='admin')
+
+    # Register sample as officer
+    _login(client, 'officer')
+    _register_sample(client)
+    client.get('/auth/logout')
+
+    # Force sample to REJECTED status directly in DB
+    with app.app_context():
+        sample = Sample.query.first()
+        sample.status = SampleStatus.REJECTED
+        db.session.commit()
+        sample_id = sample.id
+
+    # Non-admin cannot unreject
+    _login(client, 'deputy')
+    client.post(f'/samples/{sample_id}/unreject', data={
+        'unreject_reason': 'Restore this sample',
+    }, follow_redirects=True)
+    with app.app_context():
+        sample = db.session.get(Sample, sample_id)
         assert sample.status == SampleStatus.REJECTED
-        assert sample.deputy_review_comments == 'Not acceptable for release.'
+    client.get('/auth/logout')
+
+    # Admin can unreject
+    _login(client, 'admin')
+    resp = client.post(f'/samples/{sample_id}/unreject', data={
+        'unreject_reason': 'Restore this sample',
+    }, follow_redirects=True)
+    assert b'Rejected status has been removed' in resp.data
+    with app.app_context():
+        sample = db.session.get(Sample, sample_id)
+        assert sample.status == SampleStatus.DEPUTY_REVIEW
 
 
 def test_deputy_return_resubmit_via_form(app, client):

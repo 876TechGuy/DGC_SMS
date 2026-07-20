@@ -212,7 +212,21 @@
 </div>
 {% endif %}
 
-<!-- Sample details + document -->
+<!-- Admin Unreject Button (only shown when sample is Rejected) -->
+{% if current_user.has_role(Role.ADMIN) and sv == 'Rejected' %}
+<div class="alert alert-danger d-flex justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <i class="bi bi-x-circle me-1"></i>
+        <strong>Rejected:</strong> This sample has been rejected. As Admin, you can remove the rejected status and return it to Deputy Review.
+    </div>
+    <button type="button" class="btn btn-outline-danger btn-sm text-nowrap"
+            data-bs-toggle="modal" data-bs-target="#unrejectModal">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Remove Reject Status
+    </button>
+</div>
+{% endif %}
+
+
 <div class="row g-3 mb-4">
     <div class="col-md-8">
         <div class="card h-100">
@@ -1362,6 +1376,44 @@ document.addEventListener('DOMContentLoaded', function() {
                     </button>
                     <button type="submit" class="btn btn-warning">
                         <i class="bi bi-arrow-return-left me-1"></i>Confirm Return
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Admin Unreject modal ── #}
+{% if current_user.has_role(Role.ADMIN) and sv == 'Rejected' %}
+<div class="modal fade" id="unrejectModal" tabindex="-1"
+     aria-labelledby="unrejectModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="unrejectModalLabel">
+                    <i class="bi bi-arrow-counterclockwise me-2"></i>Admin — Remove Rejected Status
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('samples.unreject_sample', sample_id=sample.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <p class="mb-2"><strong>Sample:</strong> {{ sample.lab_number }} — {{ sample.sample_name }}</p>
+                    <p class="mb-3 text-muted">Removing the rejected status will return this sample to <strong>Deputy Review</strong>.</p>
+                    <div class="mb-3">
+                        <label for="unrejectReason" class="form-label fw-semibold">Reason <span class="text-danger">*</span></label>
+                        <textarea name="unreject_reason" id="unrejectReason" class="form-control" rows="3"
+                                  placeholder="Provide a reason for removing the rejected status (minimum 5 characters)…"
+                                  minlength="5" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x me-1"></i>Cancel
+                    </button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Confirm — Remove Reject Status
                     </button>
                 </div>
             </form>
