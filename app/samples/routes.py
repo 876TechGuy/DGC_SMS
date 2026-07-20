@@ -2054,9 +2054,6 @@ def review_report(assignment_id):
                 a.status = AssignmentStatus.RETURNED
                 a.return_stage = 'technical'
                 a.date_completed = None
-            elif action == 'rejected':
-                a.status = AssignmentStatus.REJECTED
-                a.date_completed = now
 
             reviewed_names.append(a.test_name)
 
@@ -2310,7 +2307,7 @@ def deputy_review(sample_id):
                     f'{current_user.full_name}. '
                     f'Proceeding to Certificate Preparation.'),
             )
-        elif action == 'returned':
+        else:  # returned
             sample.status = SampleStatus.DEPUTY_RETURNED
             _add_history(
                 sample, 'Deputy Review Returned',
@@ -2320,19 +2317,6 @@ def deputy_review(sample_id):
                 object_affected='Sample',
                 change_description=(
                     f'Returned by Deputy Government Chemist '
-                    f'{current_user.full_name}. '
-                    f'Comments: {form.review_comments.data or "N/A"}'),
-            )
-        else:  # rejected
-            sample.status = SampleStatus.REJECTED
-            _add_history(
-                sample, 'Deputy Review Rejected',
-                (f'{current_user.full_name} rejected the submission. '
-                 f'Comments: {form.review_comments.data or "N/A"}'),
-                action_type='Deputy Review',
-                object_affected='Sample',
-                change_description=(
-                    f'Rejected by Deputy Government Chemist '
                     f'{current_user.full_name}. '
                     f'Comments: {form.review_comments.data or "N/A"}'),
             )
@@ -2360,10 +2344,8 @@ def deputy_review(sample_id):
         action_text = {
             'approved': 'accepted and forwarded for certificate preparation',
             'returned': 'returned to Senior Chemist',
-            'rejected': 'rejected',
         }.get(action, action)
-        flash_category = 'warning' if action == 'rejected' else 'success'
-        flash(f'Submission has been {action_text}.', flash_category)
+        flash(f'Submission has been {action_text}.', 'success')
         return redirect(url_for('samples.detail', sample_id=sample.id))
 
     assignments = sample.assignments.all()
@@ -2418,6 +2400,76 @@ def resubmit_to_deputy(sample_id):
     db.session.commit()
 
     flash('Resubmitted to Deputy Government Chemist.', 'success')
+    return redirect(url_for('samples.detail', sample_id=sample.id))
+
+
+# ---------------------------------------------------------------------------
+# Admin: Unreject Sample (restore Rejected sample to Deputy Review)
+# ---------------------------------------------------------------------------
+
+@samples_bp.route('/<int:sample_id>/unreject', methods=['POST'])
+@login_required
+def unreject_sample(sample_id):
+    """Admin removes Rejected status, returning the sample to Deputy Review."""
+    sample = db.get_or_404(Sample, sample_id)
+
+    if not current_user.has_role(Role.ADMIN):
+        flash('Only Administrators can remove a rejected status.', 'danger')
+        return redirect(url_for('samples.detail', sample_id=sample.id))
+
+    if sample.status != SampleStatus.REJECTED:
+        flash('Sample is not in a Rejected state.', 'warning')
+        return redirect(url_for('samples.detail', sample_id=sample.id))
+
+    reason = request.form.get('unreject_reason', '').strip()
+    if not reason or len(reason) < 5:
+        flash('Please provide a reason (minimum 5 characters).', 'danger')
+        return redirect(url_for('samples.detail', sample_id=sample.id))
+
+    now = jamaica_now()
+    sample.status = SampleStatus.DEPUTY_REVIEW
+
+    _add_history(
+        sample,
+        'Rejected Status Removed',
+        (f'{current_user.full_name} (Admin) removed the rejected status. '
+         f'Sample returned to Deputy Review. Reason: {reason}'),
+        action_type='Admin Action',
+        object_affected='Sample',
+        change_description=(
+            f'Rejected status removed by Admin {current_user.full_name}. '
+            f'Returned to Deputy Review. Reason: {reason}'),
+    )
+
+    db.session.add(ReviewHistory(
+        sample_id=sample.id,
+        review_type='deputy',
+        review_number=1,
+        action='unreject',
+        reviewer_id=current_user.id,
+        reviewed_at=now,
+        comments=reason,
+    ))
+
+    db.session.add(AuditLog(
+        action='ADMIN_UNREJECT_SAMPLE',
+        entity_type='Sample',
+        entity_id=sample.id,
+        entity_label=sample.lab_number,
+        details=json.dumps({
+            'lab_number': sample.lab_number,
+            'sample_name': sample.sample_name,
+            'previous_status': 'Rejected',
+            'new_status': SampleStatus.DEPUTY_REVIEW.value,
+            'actioned_by': current_user.full_name,
+            'reason': reason,
+        }),
+        performed_by=current_user.id,
+    ))
+
+    db.session.commit()
+
+    flash('Rejected status has been removed. Sample is now in Deputy Review.', 'success')
     return redirect(url_for('samples.detail', sample_id=sample.id))
 
 
