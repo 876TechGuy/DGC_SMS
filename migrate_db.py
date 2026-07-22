@@ -403,6 +403,20 @@ NEW_TABLES = [
         '  uploaded_at DATETIME'
         ')',
     ),
+    # Acting Roles – temporary role assignments with expiry
+    (
+        'acting_roles',
+        'CREATE TABLE IF NOT EXISTS acting_roles ('
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,'
+        '  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,'
+        '  role VARCHAR(50) NOT NULL,'
+        '  assigned_by INTEGER NOT NULL REFERENCES users(id),'
+        '  start_date DATE NOT NULL,'
+        '  expiry_date DATE NOT NULL,'
+        '  notes VARCHAR(500),'
+        '  created_at DATETIME'
+        ')',
+    ),
 ]
 
 # ------------------------------------------------------------------------------

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - DGC SMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2><i class="bi bi-person-badge"></i> {{ title }}</h2>
+    <a href="{{ url_for('auth.acting_roles_list') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Back to Acting Roles
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body p-4">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+
+                    <div class="mb-3">
+                        {{ form.user_id.label(class="form-label fw-semibold") }}
+                        {{ form.user_id(class="form-select") }}
+                        {% for error in form.user_id.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ form.role.label(class="form-label fw-semibold") }}
+                        {{ form.role(class="form-select") }}
+                        {% for error in form.role.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            {{ form.start_date.label(class="form-label fw-semibold") }}
+                            {{ form.start_date(class="form-control", type="date") }}
+                            {% for error in form.start_date.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.expiry_date.label(class="form-label fw-semibold") }}
+                            {{ form.expiry_date(class="form-control", type="date") }}
+                            {% for error in form.expiry_date.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3 mt-3">
+                        {{ form.notes.label(class="form-label fw-semibold") }}
+                        {{ form.notes(class="form-control", rows="3", placeholder="Optional notes about this acting assignment...") }}
+                        {% for error in form.notes.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="text-end">
+                        {{ form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

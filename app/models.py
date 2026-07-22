@@ -212,6 +212,32 @@ class CustomRole(db.Model):
         return f'<CustomRole {self.name}>'
 
 
+class ActingRole(db.Model):
+    """Temporary role assignment for a user acting in a position with an expiry date."""
+    __tablename__ = 'acting_roles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    role = db.Column(db.Enum(Role), nullable=False)
+    assigned_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    expiry_date = db.Column(db.Date, nullable=False)
+    notes = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=jamaica_now)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('acting_roles', lazy='selectin'))
+    assigned_by_user = db.relationship('User', foreign_keys=[assigned_by])
+
+    @property
+    def is_active(self):
+        """Return True if the acting role is currently within its valid date range."""
+        today = jamaica_now().date()
+        return self.start_date <= today <= self.expiry_date
+
+    def __repr__(self):
+        return f'<ActingRole user_id={self.user_id} role={self.role.value} expires={self.expiry_date}>'
+
+
 class SampleStatus(enum.Enum):
     REGISTERED = 'Registered'
     ASSIGNED = 'Assigned'
@@ -401,10 +427,22 @@ class User(UserMixin, db.Model):
         self._permissions_dirty = True
 
     def has_role(self, role):
-        return role in self.roles
+        if role in self.roles:
+            return True
+        # Check active acting roles
+        return any(ar.role == role and ar.is_active for ar in self.acting_roles)
 
     def has_any_role(self, *roles):
-        return bool(self.roles & set(roles))
+        roles_set = set(roles)
+        if self.roles & roles_set:
+            return True
+        # Check active acting roles
+        return any(ar.role in roles_set and ar.is_active for ar in self.acting_roles)
+
+    @property
+    def active_acting_roles(self):
+        """Return list of currently active acting roles."""
+        return [ar for ar in self.acting_roles if ar.is_active]
 
     def has_branch(self, branch):
         return branch in self.branches
@@ -426,6 +464,9 @@ class User(UserMixin, db.Model):
         """Comma-separated display of roles."""
         names = {r.value for r in self.roles}
         names.update(cr.name for cr in self.custom_roles_rel)
+        # Include active acting roles
+        for ar in self.active_acting_roles:
+            names.add(f'{ar.role.value} (Acting)')
         return ', '.join(sorted(names)) or '—'
 
     @property
