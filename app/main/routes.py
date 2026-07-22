@@ -160,15 +160,13 @@ def dashboard():
         stats['registered'] = my_samples.filter_by(
             status=SampleStatus.REGISTERED
         ).count()
-        # Count distinct samples uploaded by this officer that have at least one
-        # assignment currently awaiting preliminary review — this catches samples
-        # where one test has already progressed past REPORT_SUBMITTED while
-        # another test is still waiting, which would otherwise be hidden by the
-        # sample-level status.
+        # Count all samples that have at least one assignment currently awaiting
+        # preliminary review — not restricted to this officer's uploads because
+        # officers can see (and act on) all samples in the sample list.
         _prelim_ids = db.select(SampleAssignment.sample_id).where(
             SampleAssignment.status == AssignmentStatus.REPORT_SUBMITTED
         ).distinct().scalar_subquery()
-        stats['preliminary_review'] = my_samples.filter(
+        stats['preliminary_review'] = Sample.query.filter(
             Sample.id.in_(_prelim_ids)
         ).count()
         stats['in_progress'] = my_samples.filter(
