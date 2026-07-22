@@ -278,13 +278,18 @@ def notify_report_submitted(assignment):
 
 
 def notify_preliminary_review_completed(assignment, action):
-    """Called when an Officer completes preliminary review."""
+    """Called when an Officer completes preliminary review.
+    
+    Notifies:
+    1. The chemist (when report is returned for correction)
+    2. Senior Chemists/branch heads (when report is approved)
+    3. The reviewing officer (always - confirmation of their action)
+    """
     sample = assignment.sample
     action_text = 'approved' if action == 'approved' else 'returned for correction'
-
     link = f'/samples/assignment/{assignment.id}'
 
-    # Only notify the chemist when they need to resubmit (report returned)
+    # Notify the chemist when they need to resubmit (report returned)
     if action != 'approved':
         title = f'Preliminary Review – {action_text.title()}: {sample.lab_number}'
         message = (
@@ -305,6 +310,34 @@ def notify_preliminary_review_completed(assignment, action):
             f'"{sample.sample_name}" (Lab# {sample.lab_number}) '
             f'has passed preliminary review and is ready for '
             f'Senior Chemist review.',
+            link,
+        )
+
+    # Notify the reviewing officer of the outcome (confirmation of action)
+    reviewer = db.session.get(User, assignment.preliminary_reviewed_by)
+    if reviewer:
+        if action == 'approved':
+            officer_title = f'✓ Preliminary Review Completed: {sample.lab_number}'
+            officer_message = (
+                f'You have approved the preliminary review for test '
+                f'"{assignment.test_name}" on sample "{sample.sample_name}" '
+                f'(Lab# {sample.lab_number}). The report has been forwarded '
+                f'to the Senior Chemist for technical review.'
+            )
+        else:  # returned
+            officer_title = f'⟲ Preliminary Review Returned: {sample.lab_number}'
+            officer_message = (
+                f'You have returned the report for test "{assignment.test_name}" '
+                f'on sample "{sample.sample_name}" (Lab# {sample.lab_number}) '
+                f'for correction. The analyst has been notified.'
+            )
+            if assignment.preliminary_review_comments:
+                officer_message += f'\n\nYour Comments: {assignment.preliminary_review_comments}'
+
+        create_notification(
+            reviewer.id,
+            officer_title,
+            officer_message,
             link,
         )
 
