@@ -206,7 +206,12 @@ def logout():
     ))
     db.session.commit()
     logout_user()
-    session.clear()
+    # Remove only application-specific session keys.  Do NOT call
+    # session.clear() here — logout_user() sets session['_remember'] =
+    # 'clear' so Flask-Login's after_request handler will delete the
+    # remember-me cookie.  Clearing the entire session would remove that
+    # flag and leave the cookie intact, preventing logout.
+    session.pop('remember_me', None)
     flash('You have been logged out.', 'info')
     return redirect(url_for('auth.login'))
 
