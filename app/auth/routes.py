@@ -7,8 +7,8 @@ from sqlalchemy.exc import OperationalError
 
 from app import db
 from app.auth import auth_bp
-from app.forms import LoginForm, UserCreateForm, UserEditForm, ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm
-from app.models import User, Role, Branch, Permission, Notification, SampleHistory, SampleAssignment, Sample, CustomRole, Setting, jamaica_now, AuditLog
+from app.forms import LoginForm, UserCreateForm, UserEditForm, ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm, ActingRoleForm
+from app.models import User, Role, Branch, Permission, Notification, SampleHistory, SampleAssignment, Sample, CustomRole, Setting, ActingRole, jamaica_now, AuditLog
 from app.notifications import send_email
 
 
@@ -111,6 +111,9 @@ def login():
             ))
             db.session.commit()
             login_user(user, remember=form.remember_me.data)
+            # Store remember-me preference in session so templates can
+            # skip the idle-timeout auto-logout for remembered users.
+            session['remember_me'] = form.remember_me.data
             if user.must_change_password:
                 flash('Please change your password before continuing.', 'warning')
                 return redirect(url_for('auth.change_password'))
@@ -477,6 +480,99 @@ def active_users():
         online_users=online,
         threshold_minutes=_ONLINE_THRESHOLD_MINUTES,
     )
+
+
+# ---------------------------------------------------------------------------
+# Acting Roles Management (Admin / HOD only)
+# ---------------------------------------------------------------------------
+
+@auth_bp.route('/acting-roles')
+@login_required
+def acting_roles_list():
+    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+    acting_roles = ActingRole.query.order_by(ActingRole.expiry_date.desc()).all()
+    return render_template('auth/acting_roles.html', acting_roles=acting_roles)
+
+
+@auth_bp.route('/acting-roles/assign', methods=['GET', 'POST'])
+@login_required
+def acting_role_assign():
+    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+    form = ActingRoleForm()
+    users = User.query.filter_by(is_active_user=True).order_by(User.last_name).all()
+    form.user_id.choices = [(u.id, f'{u.full_name} ({u.username})') for u in users]
+    if form.validate_on_submit():
+        acting_role = ActingRole(
+            user_id=form.user_id.data,
+            role=Role[form.role.data],
+            assigned_by=current_user.id,
+            start_date=form.start_date.data,
+            expiry_date=form.expiry_date.data,
+            notes=form.notes.data or None,
+        )
+        db.session.add(acting_role)
+        target_user = db.get_or_404(User, form.user_id.data)
+        db.session.add(AuditLog(
+            action='ACTING_ROLE_ASSIGNED',
+            entity_type='User',
+            entity_id=target_user.id,
+            entity_label=target_user.username,
+            details=(
+                f'Acting role "{Role[form.role.data].value}" assigned to '
+                f'"{target_user.username}" by "{current_user.username}" '
+                f'(expires {form.expiry_date.data}).'
+            ),
+            performed_by=current_user.id,
+            performed_at=jamaica_now(),
+        ))
+        try:
+            _commit_with_retry()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.exception('Failed to assign acting role')
+            flash(f'An error occurred: {exc}', 'danger')
+            return render_template('auth/acting_role_form.html', form=form, title='Assign Acting Role')
+        flash(
+            f'Acting role "{Role[form.role.data].value}" assigned to {target_user.full_name}.',
+            'success',
+        )
+        return redirect(url_for('auth.acting_roles_list'))
+    return render_template('auth/acting_role_form.html', form=form, title='Assign Acting Role')
+
+
+@auth_bp.route('/acting-roles/<int:acting_role_id>/revoke', methods=['POST'])
+@login_required
+def acting_role_revoke(acting_role_id):
+    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+    acting_role = db.get_or_404(ActingRole, acting_role_id)
+    target_user = acting_role.user
+    db.session.add(AuditLog(
+        action='ACTING_ROLE_REVOKED',
+        entity_type='User',
+        entity_id=target_user.id,
+        entity_label=target_user.username,
+        details=(
+            f'Acting role "{acting_role.role.value}" revoked from '
+            f'"{target_user.username}" by "{current_user.username}".'
+        ),
+        performed_by=current_user.id,
+        performed_at=jamaica_now(),
+    ))
+    db.session.delete(acting_role)
+    try:
+        _commit_with_retry()
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'An error occurred: {exc}', 'danger')
+        return redirect(url_for('auth.acting_roles_list'))
+    flash(f'Acting role revoked from {target_user.full_name}.', 'success')
+    return redirect(url_for('auth.acting_roles_list'))
 
 
 # ---------------------------------------------------------------------------

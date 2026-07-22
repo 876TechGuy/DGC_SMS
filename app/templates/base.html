@@ -648,6 +648,12 @@
                         <i class="bi bi-shield-lock"></i> Roles &amp; Permissions
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint in ('auth.acting_roles_list', 'auth.acting_role_assign') %}active{% endif %}"
+                       href="{{ url_for('auth.acting_roles_list') }}">
+                        <i class="bi bi-person-badge"></i> Acting Roles
+                    </a>
+                </li>
                 {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'main.calendar_management' %}active{% endif %}"
@@ -761,6 +767,7 @@
     <script>
         /* ── Session inactivity timeout ───────────────────── */
         (function() {
+            var REMEMBER_ME = {{ 'true' if session.get('remember_me') else 'false' }};
             var SESSION_LIFETIME = {{ config['PERMANENT_SESSION_LIFETIME'].total_seconds()|int }};
             var WARNING_BEFORE = 120;
             var idleSeconds = 0;
@@ -768,6 +775,10 @@
             var countdownInterval = null;
             var modalEl = document.getElementById('sessionTimeoutModal');
             var modal = new bootstrap.Modal(modalEl);
+
+            /* If "Remember Me" was selected, skip the idle auto-logout entirely.
+               The user can still manually log out via the Sign Out link. */
+            if (REMEMBER_ME) return;
 
             function resetIdle() {
                 idleSeconds = 0;

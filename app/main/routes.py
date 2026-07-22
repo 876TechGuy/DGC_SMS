@@ -22,7 +22,7 @@ from app.models import (
     SupportingDocument, ReviewHistory, AuditLog,
     user_roles, user_branches, user_permissions,
     CustomRole, custom_role_permissions, user_custom_roles,
-    DeleteRequest, DirectMessage,
+    DeleteRequest, DirectMessage, ActingRole,
     Invoice, InvoiceItem, DropdownConfig,
 )
 
@@ -2913,6 +2913,7 @@ def export_data():
             'delete_requests': _table_to_dicts(DeleteRequest),
             'audit_log': _table_to_dicts(AuditLog),
             'direct_messages': _table_to_dicts(DirectMessage),
+            'acting_roles': _table_to_dicts(ActingRole),
         },
     }
 

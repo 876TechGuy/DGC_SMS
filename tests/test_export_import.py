@@ -169,11 +169,12 @@ class TestExport:
         data = json.loads(zipfile.ZipFile(io.BytesIO(resp.data)).read('data.json'))
         expected_tables = {
             'users', 'user_roles', 'user_branches', 'user_permissions',
+            'custom_roles', 'custom_role_permissions', 'user_custom_roles',
             'settings', 'samples', 'sample_assignments', 'sample_history',
             'review_history', 'notifications', 'kpi_targets',
             'non_working_days', 'supporting_documents',
             'document_versions', 'back_date_requests', 'delete_requests',
-            'audit_log', 'direct_messages',
+            'audit_log', 'direct_messages', 'acting_roles',
         }
         assert expected_tables == set(data['tables'].keys())
 

@@ -421,6 +421,25 @@ class UserEditForm(FlaskForm):
     submit = SubmitField('Update User')
 
 
+class ActingRoleForm(FlaskForm):
+    """Form to assign an acting role to a user with an expiry date."""
+    user_id = SelectField('User', coerce=int, validators=[DataRequired()])
+    role = SelectField(
+        'Acting Role',
+        choices=[(r.name, r.value) for r in Role],
+        validators=[DataRequired()],
+    )
+    start_date = DateField('Start Date', validators=[DataRequired()])
+    expiry_date = DateField('Expiry Date', validators=[DataRequired()])
+    notes = TextAreaField('Notes', validators=[Optional(), Length(max=500)])
+    submit = SubmitField('Assign Acting Role')
+
+    def validate_expiry_date(self, field):
+        if self.start_date.data and field.data:
+            if field.data < self.start_date.data:
+                raise ValidationError('Expiry date must be on or after the start date.')
+
+
 # ---------------------------------------------------------------------------
 # Sample forms
 # ---------------------------------------------------------------------------
