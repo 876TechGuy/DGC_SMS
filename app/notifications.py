@@ -211,6 +211,32 @@ def notify_branch_heads(branch, title, message, link=None, exclude_user_id=None)
         create_notification(head.id, title, message, link)
 
 
+def _notify_branch_officers(branch, title, message, link=None, exclude_user_id=None):
+    """Notify active Officers assigned to the same branch.
+
+    This ensures all officers in the relevant branch are aware of pending
+    preliminary reviews, not just the one who originally uploaded the sample.
+    """
+    from app.models import Branch
+    officers = User.query.join(user_roles).filter(
+        user_roles.c.role == Role.OFFICER,
+        User.is_active_user.is_(True),
+    ).distinct().all()
+
+    # Treat PHARMACEUTICAL_NR as PHARMACEUTICAL for branch matching
+    effective_branch = branch
+    if branch == Branch.PHARMACEUTICAL_NR:
+        effective_branch = Branch.PHARMACEUTICAL
+
+    for officer in officers:
+        if officer.id == exclude_user_id:
+            continue
+        # Officers without branches are org-wide; otherwise filter by branch
+        if officer.branches and effective_branch not in officer.branches and branch not in officer.branches:
+            continue
+        create_notification(officer.id, title, message, link)
+
+
 def notify_sample_uploaded(sample):
     """Called when an officer uploads a new sample."""
     title = f'New Sample Registered: {sample.lab_number}'
@@ -237,20 +263,42 @@ def notify_sample_assigned(assignment):
 
 def notify_report_submitted(assignment):
     """Called when a chemist submits a report."""
+    from app.models import AssignmentStatus, Branch
+
     sample = assignment.sample
+    link = f'/samples/assignment/{assignment.id}/preliminary-review'
+
+    # If returning directly to Senior Chemist review (bypassing preliminary),
+    # only notify branch heads – officers don't need to act.
+    if assignment.status == AssignmentStatus.UNDER_TECHNICAL_REVIEW:
+        notify_branch_heads(
+            sample.sample_type,
+            f'Report Ready for Senior Chemist Review: {sample.lab_number}',
+            f'Analyst {assignment.chemist.full_name} has resubmitted '
+            f'report for test "{assignment.test_name}" on sample '
+            f'"{sample.sample_name}" (Lab# {sample.lab_number}). '
+            f'Senior Chemist review required.',
+            f'/samples/assignment/{assignment.id}',
+        )
+        return
+
     # Notify the officer who uploaded the sample (for preliminary review)
-    title = f'Report Submitted: {sample.lab_number}'
+    title = f'Preliminary Review Required: {sample.lab_number}'
     message = (
         f'Analyst {assignment.chemist.full_name} has submitted a report '
         f'for test "{assignment.test_name}" on sample '
         f'"{sample.sample_name}" (Lab# {sample.lab_number}). '
         f'A preliminary review is required.'
     )
-    link = f'/samples/assignment/{assignment.id}'
     create_notification(sample.uploaded_by, title, message, link)
 
+    # Also notify other officers in the same branch so coverage is not missed
+    _notify_branch_officers(
+        sample.sample_type, title, message, link,
+        exclude_user_id=sample.uploaded_by,
+    )
+
     # For pharmaceutical samples, also notify the Senior Chemist
-    from app.models import AssignmentStatus, Branch
     pharma_types = (Branch.PHARMACEUTICAL, Branch.PHARMACEUTICAL_NR)
     if sample.sample_type in pharma_types:
         notify_branch_heads(
@@ -260,20 +308,8 @@ def notify_report_submitted(assignment):
             f'for test "{assignment.test_name}" on pharmaceutical sample '
             f'"{sample.sample_name}" (Lab# {sample.lab_number}). '
             f'Senior Chemist review required.',
-            link,
+            f'/samples/assignment/{assignment.id}',
             exclude_user_id=sample.uploaded_by,
-        )
-
-    # If returning directly to Senior Chemist review, also notify branch heads
-    if assignment.status == AssignmentStatus.UNDER_TECHNICAL_REVIEW:
-        notify_branch_heads(
-            sample.sample_type,
-            f'Report Ready for Senior Chemist Review: {sample.lab_number}',
-            f'Analyst {assignment.chemist.full_name} has resubmitted '
-            f'report for test "{assignment.test_name}" on sample '
-            f'"{sample.sample_name}" (Lab# {sample.lab_number}). '
-            f'Senior Chemist review required.',
-            link,
         )
 
 
