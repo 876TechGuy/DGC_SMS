@@ -3019,6 +3019,8 @@ def _update_sample_status(sample):
         sample.status = SampleStatus.RETURNED
     elif any(s == AssignmentStatus.UNDER_TECHNICAL_REVIEW for s in statuses):
         sample.status = SampleStatus.UNDER_TECHNICAL_REVIEW
+    elif any(s == AssignmentStatus.UNDER_PRELIMINARY_REVIEW for s in statuses):
+        sample.status = SampleStatus.UNDER_PRELIMINARY_REVIEW
     elif any(s == AssignmentStatus.REPORT_SUBMITTED for s in statuses):
         sample.status = SampleStatus.REPORT_SUBMITTED
     elif any(s == AssignmentStatus.IN_PROGRESS for s in statuses):
