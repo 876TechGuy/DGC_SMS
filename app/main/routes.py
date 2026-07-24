@@ -240,6 +240,25 @@ def dashboard():
             ])
         ).count()
 
+    # Pharmaceutical samples awaiting chemist assignment
+    _pharma_branches = [Branch.PHARMACEUTICAL, Branch.PHARMACEUTICAL_NR]
+    unassigned_pharma_samples = []
+    if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN):
+        _unassigned_q = Sample.query.filter(
+            Sample.sample_type.in_(_pharma_branches),
+            Sample.status == SampleStatus.REGISTERED,
+        )
+        if current_user.has_role(Role.SENIOR_CHEMIST) and not current_user.has_any_role(Role.HOD, Role.ADMIN):
+            if current_user.branches:
+                _unassigned_q = _unassigned_q.filter(
+                    Sample.sample_type.in_(current_user.branches)
+                )
+            else:
+                _unassigned_q = _unassigned_q.filter(False)
+        unassigned_pharma_samples = _unassigned_q.order_by(
+            Sample.date_registered.asc()
+        ).all()
+
     # Recent notifications
     notifications = Notification.query.filter_by(
         user_id=current_user.id
@@ -290,6 +309,8 @@ def dashboard():
     return render_template(
         'dashboard.html', stats=stats, notifications=notifications,
         upcoming_deadlines=upcoming_deadlines,
+        unassigned_pharma_samples=unassigned_pharma_samples,
+        today=today,
     )
 
 

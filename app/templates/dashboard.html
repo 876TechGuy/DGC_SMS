@@ -233,6 +233,57 @@
     </div>
 </div>
 
+<!-- ── Pharmaceutical Samples Awaiting Assignment ─────────── -->
+{% if unassigned_pharma_samples is defined and unassigned_pharma_samples %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-capsule me-2 text-danger"></i>Pharmaceutical Samples Awaiting Chemist Assignment</span>
+        <a href="{{ url_for('samples.sample_list', type='PHARMACEUTICAL', status='REGISTERED') }}" class="btn btn-sm btn-outline-danger">View All</a>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Lab #</th>
+                    <th>Sample Name</th>
+                    <th>Type</th>
+                    <th>Date Registered</th>
+                    <th>Days Waiting</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in unassigned_pharma_samples %}
+                {% set days_waiting = (today - s.date_registered.date()).days %}
+                <tr class="align-middle">
+                    <td>
+                        <a href="{{ url_for('samples.detail', sample_id=s.id) }}"
+                           class="fw-semibold text-primary text-decoration-none">{{ s.lab_number }}</a>
+                    </td>
+                    <td>{{ s.sample_name }}</td>
+                    <td><span class="badge bg-secondary">{{ s.sample_type.value }}</span></td>
+                    <td>{{ s.date_registered.strftime('%d %b %Y') }}</td>
+                    <td>
+                        {% if days_waiting > 14 %}
+                        <span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>{{ days_waiting }} day{{ 's' if days_waiting != 1 else '' }}</span>
+                        {% elif days_waiting > 7 %}
+                        <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i>{{ days_waiting }} day{{ 's' if days_waiting != 1 else '' }}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ days_waiting }} day{{ 's' if days_waiting != 1 else '' }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('samples.assign', sample_id=s.id) }}"
+                           class="btn btn-sm btn-outline-primary">Assign</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- ── Upcoming Report Deadlines ──────────────────────────── -->
 {% if upcoming_deadlines %}
 <div class="card mb-4">
