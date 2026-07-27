@@ -104,6 +104,7 @@ class Permission(enum.Enum):
     MANAGE_DROPDOWNS        = 'Manage Dropdown Values'
     MANAGE_SETTINGS         = 'Manage Settings'
     VIEW_ALL_BRANCHES_REPORT = 'View All Branches Report'
+    VIEW_ANALYST_PERFORMANCE_REPORT = 'View Analyst Performance Report'
     # HOD Workflow Return & Audit/QC permissions
     HOD_WORKFLOW_RETURN     = 'HOD Workflow Return'
     QC_DATA_DOWNLOAD        = 'QC Data Download'

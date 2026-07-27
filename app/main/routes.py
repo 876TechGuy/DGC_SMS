@@ -1887,12 +1887,20 @@ def all_branches_report_download():
 # Analyst Performance Report
 # ---------------------------------------------------------------------------
 
+def _can_view_analyst_report():
+    """Return True if the current user may view the analyst performance report."""
+    return (
+        current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                  Role.DEPUTY, Role.ADMIN)
+        or current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT)
+    )
+
+
 @main_bp.route('/reports/analysts')
 @login_required
 def analyst_report():
     """Analyst performance report: tests completed per analyst with filters."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    if not _can_view_analyst_report():
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -2047,8 +2055,7 @@ def analyst_report():
 @login_required
 def analyst_report_download():
     """Download analyst performance report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    if not _can_view_analyst_report():
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
