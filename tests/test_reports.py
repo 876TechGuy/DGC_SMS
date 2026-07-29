@@ -684,3 +684,99 @@ def test_analyst_report_resubmission_count_summary_card(app, client):
     assert resp.status_code == 200
     assert b'Report Resubmissions' in resp.data
 
+
+def _setup_null_resubmission_data(app):
+    """Create a sample with a legacy NULL-type resubmission (pre-migration row)."""
+    from app.models import (
+        Sample, SampleAssignment, DocumentVersion,
+        AssignmentStatus, SampleStatus,
+    )
+    with app.app_context():
+        admin = _create_user(Role.ADMIN, username='admin_null')
+        chemist = _create_user(Role.CHEMIST, Branch.PHARMACEUTICAL, username='chemist_null')
+
+        s = Sample(
+            lab_number='NULL-001',
+            sample_name='Legacy Resubmission Test',
+            sample_type=Branch.PHARMACEUTICAL,
+            date_received=date(2026, 4, 1),
+            uploaded_by=admin.id,
+            status=SampleStatus.REGISTERED,
+        )
+        db.session.add(s)
+        db.session.flush()
+
+        a = SampleAssignment(
+            sample_id=s.id,
+            chemist_id=chemist.id,
+            assigned_by=admin.id,
+            test_name='Assay',
+            assigned_date=date(2026, 4, 2),
+            status=AssignmentStatus.COMPLETED,
+        )
+        db.session.add(a)
+        db.session.flush()
+
+        # Original submission
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=1,
+            file_path='/fake/v1.pdf',
+            original_name='report_v1.pdf',
+            upload_label='original',
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        # Legacy resubmission with NULL resubmission_type (simulates pre-migration row)
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=2,
+            file_path='/fake/v2.pdf',
+            original_name='report_v2.pdf',
+            upload_label='resubmission',
+            resubmission_type=None,  # legacy NULL type
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        db.session.commit()
+        return s.id, a.id
+
+
+def test_null_resubmission_type_counted_by_all(app, client):
+    """Legacy NULL-type resubmissions are counted when 'all' is selected."""
+    from app.main.routes import _resubmission_counts_for_assignments
+    s_id, a_id = _setup_null_resubmission_data(app)
+    with app.app_context():
+        result = _resubmission_counts_for_assignments([a_id], review_types=None)
+        assert result.get(a_id, 0) == 1
+
+
+def test_null_resubmission_type_counted_as_unspecified(app, client):
+    """Legacy NULL-type resubmissions are counted when filtering by 'unspecified'."""
+    from app.main.routes import _resubmission_counts_for_assignments
+    s_id, a_id = _setup_null_resubmission_data(app)
+    with app.app_context():
+        result = _resubmission_counts_for_assignments([a_id], review_types=['unspecified'])
+        assert result.get(a_id, 0) == 1
+
+
+def test_null_resubmission_type_excluded_by_other_types(app, client):
+    """Legacy NULL-type resubmissions are NOT counted when filtering by non-unspecified types."""
+    from app.main.routes import _resubmission_counts_for_assignments
+    s_id, a_id = _setup_null_resubmission_data(app)
+    with app.app_context():
+        result = _resubmission_counts_for_assignments([a_id], review_types=['preliminary'])
+        assert result.get(a_id, 0) == 0
+
+
+def test_analyst_report_filter_unspecified_counts_null_types(app, client):
+    """Filtering by unspecified on analyst report page includes legacy NULL rows."""
+    _setup_null_resubmission_data(app)
+    _login(client, 'admin_null')
+    resp = client.get('/reports/analysts?resub_type=unspecified')
+    assert resp.status_code == 200
+    assert b'Unspecified Review' in resp.data
+    assert b'Included Resubmission Types' in resp.data
+

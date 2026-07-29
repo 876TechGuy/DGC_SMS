@@ -474,6 +474,7 @@ def migrate(db_path):
         print(f'  Column {table}.{col}: added')
 
     _backfill_pharma_api(cur)
+    _backfill_resubmission_type(cur)
 
     conn.commit()
 
@@ -509,6 +510,32 @@ def _extract_api_candidate(description, sample_name):
             return text[:255]
 
     return None
+
+
+def _backfill_resubmission_type(cur):
+    """Backfill document_versions.resubmission_type for existing resubmission rows.
+
+    Rows created before the resubmission_type column was added have a NULL
+    value.  These are historical resubmissions whose review stage is unknown,
+    so we classify them as 'unspecified' so they are visible when the
+    'Unspecified Review' filter is selected instead of disappearing from all
+    per-type counts.
+    """
+    if not _column_exists(cur, 'document_versions', 'resubmission_type'):
+        print('  Backfill document_versions.resubmission_type skipped (column missing)')
+        return
+
+    cur.execute(
+        '''
+        UPDATE document_versions
+        SET resubmission_type = 'unspecified'
+        WHERE document_type = 'report'
+          AND upload_label = 'resubmission'
+          AND resubmission_type IS NULL
+        '''
+    )
+    updated = cur.rowcount
+    print(f'  Backfill document_versions.resubmission_type: updated {updated} row(s)')
 
 
 def _backfill_pharma_api(cur):

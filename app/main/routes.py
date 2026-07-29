@@ -623,10 +623,12 @@ def _resubmission_counts_for_samples(sample_ids, review_types=None):
 
     If *review_types* is provided (a list of resubmission_type strings),
     only resubmissions of those types are counted.  Pass None to count all.
+    When 'unspecified' is in *review_types*, rows with a NULL resubmission_type
+    are also included (they represent legacy resubmissions with no type set).
     """
     if not sample_ids:
         return {}
-    from sqlalchemy import func
+    from sqlalchemy import func, or_
     q = db.session.query(
         DocumentVersion.sample_id,
         func.count(DocumentVersion.id),
@@ -636,7 +638,15 @@ def _resubmission_counts_for_samples(sample_ids, review_types=None):
         DocumentVersion.upload_label == 'resubmission',
     )
     if review_types is not None:
-        q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
+        if 'unspecified' in review_types:
+            q = q.filter(
+                or_(
+                    DocumentVersion.resubmission_type.in_(review_types),
+                    DocumentVersion.resubmission_type.is_(None),
+                )
+            )
+        else:
+            q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
     rows = q.group_by(DocumentVersion.sample_id).all()
     return {sid: cnt for sid, cnt in rows}
 
@@ -649,10 +659,12 @@ def _resubmission_counts_for_assignments(assignment_ids, review_types=None):
 
     If *review_types* is provided (a list of resubmission_type strings),
     only resubmissions of those types are counted.  Pass None to count all.
+    When 'unspecified' is in *review_types*, rows with a NULL resubmission_type
+    are also included (they represent legacy resubmissions with no type set).
     """
     if not assignment_ids:
         return {}
-    from sqlalchemy import func
+    from sqlalchemy import func, or_
     q = db.session.query(
         DocumentVersion.assignment_id,
         func.count(DocumentVersion.id),
@@ -662,7 +674,15 @@ def _resubmission_counts_for_assignments(assignment_ids, review_types=None):
         DocumentVersion.upload_label == 'resubmission',
     )
     if review_types is not None:
-        q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
+        if 'unspecified' in review_types:
+            q = q.filter(
+                or_(
+                    DocumentVersion.resubmission_type.in_(review_types),
+                    DocumentVersion.resubmission_type.is_(None),
+                )
+            )
+        else:
+            q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
     rows = q.group_by(DocumentVersion.assignment_id).all()
     return {aid: cnt for aid, cnt in rows}
 
