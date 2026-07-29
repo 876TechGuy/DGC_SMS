@@ -1581,6 +1581,9 @@ def submit_report(assignment_id):
                 ).count()
                 version_num = existing_versions + 1
                 upload_label = 'original' if version_num == 1 else 'resubmission'
+                resub_type = a.return_stage if upload_label == 'resubmission' else None
+                if upload_label == 'resubmission' and not resub_type:
+                    resub_type = 'unspecified'
                 db.session.add(DocumentVersion(
                     sample_id=a.sample_id,
                     document_type='report',
@@ -1588,6 +1591,7 @@ def submit_report(assignment_id):
                     file_path=stored,
                     original_name=original,
                     upload_label=upload_label,
+                    resubmission_type=resub_type,
                     uploaded_by=current_user.id,
                     assignment_id=a.id,
                 ))
@@ -1616,6 +1620,9 @@ def submit_report(assignment_id):
                 ).count()
                 version_num = existing_versions + 1
                 upload_label = 'original' if version_num == 1 else 'resubmission'
+                resub_type = a.return_stage if upload_label == 'resubmission' else None
+                if upload_label == 'resubmission' and not resub_type:
+                    resub_type = 'unspecified'
                 db.session.add(DocumentVersion(
                     sample_id=a.sample_id,
                     document_type='report',
@@ -1623,6 +1630,7 @@ def submit_report(assignment_id):
                     file_path=stored,
                     original_name=original,
                     upload_label=upload_label,
+                    resubmission_type=resub_type,
                     uploaded_by=current_user.id,
                     assignment_id=a.id,
                 ))

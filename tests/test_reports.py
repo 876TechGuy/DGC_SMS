@@ -529,3 +529,158 @@ def test_alcohol_report_filter_sample_name_and_type(app, client):
     assert resp.status_code == 200
     assert b'ALC-FLT01' in resp.data
     assert b'ALC-FLT02' not in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Analyst Report — resubmission type filter
+# ---------------------------------------------------------------------------
+
+def _setup_analyst_report_data(app):
+    """Create an admin, a chemist, sample, assignment, and document versions."""
+    from app.models import (
+        Sample, SampleAssignment, DocumentVersion,
+        AssignmentStatus, SampleStatus,
+    )
+    with app.app_context():
+        admin = _create_user(Role.ADMIN, username='admin_ar')
+        chemist = _create_user(Role.CHEMIST, Branch.PHARMACEUTICAL, username='chemist_ar')
+
+        s = Sample(
+            lab_number='AR-001',
+            sample_name='Analyst Report Test',
+            sample_type=Branch.PHARMACEUTICAL,
+            date_received=date(2026, 4, 1),
+            uploaded_by=admin.id,
+            status=SampleStatus.REGISTERED,
+        )
+        db.session.add(s)
+        db.session.flush()
+
+        a = SampleAssignment(
+            sample_id=s.id,
+            chemist_id=chemist.id,
+            assigned_by=admin.id,
+            test_name='Dissolution',
+            assigned_date=date(2026, 4, 2),
+            status=AssignmentStatus.COMPLETED,
+        )
+        db.session.add(a)
+        db.session.flush()
+
+        # Original submission
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=1,
+            file_path='/fake/v1.pdf',
+            original_name='report_v1.pdf',
+            upload_label='original',
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        # Preliminary review resubmission
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=2,
+            file_path='/fake/v2.pdf',
+            original_name='report_v2.pdf',
+            upload_label='resubmission',
+            resubmission_type='preliminary',
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        # Technical review resubmission
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=3,
+            file_path='/fake/v3.pdf',
+            original_name='report_v3.pdf',
+            upload_label='resubmission',
+            resubmission_type='technical',
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        # Unspecified resubmission (historical)
+        db.session.add(DocumentVersion(
+            sample_id=s.id,
+            document_type='report',
+            version_number=4,
+            file_path='/fake/v4.pdf',
+            original_name='report_v4.pdf',
+            upload_label='resubmission',
+            resubmission_type='unspecified',
+            uploaded_by=chemist.id,
+            assignment_id=a.id,
+        ))
+        db.session.commit()
+        return s.id, a.id
+
+
+def test_analyst_report_renders_for_admin(app, client):
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts')
+    assert resp.status_code == 200
+    assert b'Analyst Performance Report' in resp.data
+
+
+def test_analyst_report_transparency_label_all(app, client):
+    """Default (all types) shows the all-types label."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts?resub_type=all')
+    assert resp.status_code == 200
+    assert b'All Review Types' in resp.data
+
+
+def test_analyst_report_filter_preliminary_only(app, client):
+    """Filtering by preliminary counts only preliminary resubmissions."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts?resub_type=preliminary')
+    assert resp.status_code == 200
+    assert b'Preliminary Review' in resp.data
+    # The transparency notice should appear
+    assert b'Included Resubmission Types' in resp.data
+
+
+def test_analyst_report_filter_multiple_types(app, client):
+    """Filtering by two types is accepted without error."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts?resub_type=preliminary&resub_type=technical')
+    assert resp.status_code == 200
+    assert b'Preliminary Review' in resp.data
+    assert b'Technical Review' in resp.data
+
+
+def test_analyst_report_download_csv_has_transparency_header(app, client):
+    """Downloaded CSV includes the Included Resubmission Types header row."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts/download?resub_type=preliminary')
+    assert resp.status_code == 200
+    assert b'Included Resubmission Types' in resp.data
+    assert b'Preliminary Review' in resp.data
+
+
+def test_analyst_report_download_csv_all_types(app, client):
+    """Downloaded CSV with all types includes header and data rows."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts/download?resub_type=all')
+    assert resp.status_code == 200
+    assert b'All Review Types' in resp.data
+    assert b'Report Resubmissions' in resp.data
+
+
+def test_analyst_report_resubmission_count_summary_card(app, client):
+    """Summary card shows total resubmissions figure."""
+    _setup_analyst_report_data(app)
+    _login(client, 'admin_ar')
+    resp = client.get('/reports/analysts?resub_type=all')
+    assert resp.status_code == 200
+    assert b'Report Resubmissions' in resp.data
+
