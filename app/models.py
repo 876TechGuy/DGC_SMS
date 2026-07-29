@@ -1196,6 +1196,7 @@ class DocumentVersion(db.Model):
     file_path = db.Column(db.String(500), nullable=False)
     original_name = db.Column(db.String(255), nullable=False)
     upload_label = db.Column(db.String(50), nullable=True)  # 'original', 'revised', 'resubmission'
+    resubmission_type = db.Column(db.String(50), nullable=True)  # 'preliminary', 'technical', 'deputy', 'hod', 'unspecified'
     uploaded_by = db.Column(
         db.Integer, db.ForeignKey('users.id'), nullable=False
     )

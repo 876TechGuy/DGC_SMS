@@ -28,6 +28,31 @@ from app.models import (
 
 REPORT_PER_PAGE = 25
 
+# Resubmission type classification constants.
+# Maps internal resubmission_type values (stored in DocumentVersion.resubmission_type)
+# to human-readable display labels used in the Analyst Report filter UI.
+RESUBMISSION_TYPES = [
+    ('preliminary',  'Preliminary Review'),
+    ('technical',    'Technical Review'),
+    ('deputy',       'Deputy Review'),
+    ('hod',          'HOD Review'),
+    ('unspecified',  'Unspecified Review'),
+]
+
+# Default setting key stored in the Setting table.
+ANALYST_REPORT_RESUB_TYPES_KEY = 'analyst_report_default_resubmission_types'
+
+
+def _get_default_resubmission_types():
+    """Return the default resubmission type filter list from settings.
+
+    Returns None to mean "all types" (no filter), or a list of type keys.
+    """
+    raw = Setting.get(ANALYST_REPORT_RESUB_TYPES_KEY, 'all')
+    if not raw or raw == 'all':
+        return None
+    return [t.strip() for t in raw.split(',') if t.strip()]
+
 
 def _current_fiscal_year():
     """Return the current fiscal year (April-March)."""
@@ -589,44 +614,56 @@ def _out_of_spec_count_for_samples(sample_ids):
     ).count()
 
 
-def _resubmission_counts_for_samples(sample_ids):
+def _resubmission_counts_for_samples(sample_ids, review_types=None):
     """Return a dict of {sample_id: resubmission_count} for the given samples.
 
     Counts DocumentVersion rows with document_type='report' and
     upload_label='resubmission', which are created every time a chemist
     resubmits a report after it has been returned for correction.
+
+    If *review_types* is provided (a list of resubmission_type strings),
+    only resubmissions of those types are counted.  Pass None to count all.
     """
     if not sample_ids:
         return {}
     from sqlalchemy import func
-    rows = db.session.query(
+    q = db.session.query(
         DocumentVersion.sample_id,
         func.count(DocumentVersion.id),
     ).filter(
         DocumentVersion.sample_id.in_(sample_ids),
         DocumentVersion.document_type == 'report',
         DocumentVersion.upload_label == 'resubmission',
-    ).group_by(DocumentVersion.sample_id).all()
+    )
+    if review_types is not None:
+        q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
+    rows = q.group_by(DocumentVersion.sample_id).all()
     return {sid: cnt for sid, cnt in rows}
 
 
-def _resubmission_counts_for_assignments(assignment_ids):
+def _resubmission_counts_for_assignments(assignment_ids, review_types=None):
     """Return a dict of {assignment_id: resubmission_count} for the given assignments.
 
     Counts DocumentVersion rows with document_type='report' and
     upload_label='resubmission' linked to each assignment_id.
+
+    If *review_types* is provided (a list of resubmission_type strings),
+    only resubmissions of those types are counted.  Pass None to count all.
     """
     if not assignment_ids:
         return {}
     from sqlalchemy import func
-    rows = db.session.query(
+    q = db.session.query(
         DocumentVersion.assignment_id,
         func.count(DocumentVersion.id),
     ).filter(
         DocumentVersion.assignment_id.in_(assignment_ids),
         DocumentVersion.document_type == 'report',
         DocumentVersion.upload_label == 'resubmission',
-    ).group_by(DocumentVersion.assignment_id).all()
+    )
+    if review_types is not None:
+        q = q.filter(DocumentVersion.resubmission_type.in_(review_types))
+    rows = q.group_by(DocumentVersion.assignment_id).all()
     return {aid: cnt for aid, cnt in rows}
 
 
@@ -1911,6 +1948,27 @@ def analyst_report():
     analyst_id = request.args.get('analyst_id', type=int, default=0)
     search = request.args.get('search', '').strip()
 
+    # Resubmission type filter: read selected types from request.
+    # 'resub_type' is a multi-value checkbox list; empty list means use default.
+    # The special value 'all' means no filter (count all types).
+    valid_type_keys = {k for k, _ in RESUBMISSION_TYPES}
+    raw_resub_types = request.args.getlist('resub_type')
+    if not raw_resub_types:
+        # No filter submitted — fall back to system default
+        resub_filter = _get_default_resubmission_types()   # None = all, list = specific
+        if resub_filter is None:
+            resub_selected = ['all']
+        else:
+            resub_selected = [t for t in resub_filter if t in valid_type_keys]
+            if not resub_selected:
+                resub_selected = ['all']
+    elif 'all' in raw_resub_types:
+        resub_filter = None   # count every type
+        resub_selected = ['all']
+    else:
+        resub_selected = [t for t in raw_resub_types if t in valid_type_keys]
+        resub_filter = resub_selected if resub_selected else None
+
     # Build base query on assignments
     q = SampleAssignment.query.join(
         Sample, SampleAssignment.sample_id == Sample.id
@@ -1979,6 +2037,13 @@ def analyst_report():
     total_assignments = len(assignments)
     total_completed = sum(d['completed'] for d in analyst_data.values())
 
+    # Total resubmissions respecting the selected filter
+    all_assignment_ids = [a.id for a in assignments]
+    all_resubmissions_map = _resubmission_counts_for_assignments(
+        all_assignment_ids, review_types=resub_filter
+    )
+    total_resubmissions = sum(all_resubmissions_map.values())
+
     # Selected analyst detail view with pagination and sort
     selected_analyst = None
     detail_items = []
@@ -2016,9 +2081,18 @@ def analyst_report():
         d_start = (detail_page - 1) * DETAIL_PER_PAGE
         detail_items = tests[d_start:d_start + DETAIL_PER_PAGE]
 
-    # Resubmission counts per assignment for the detail view
+    # Resubmission counts per assignment for the detail view (respect filter)
     detail_assignment_ids = [a.id for a in detail_items]
-    assignment_resubmissions = _resubmission_counts_for_assignments(detail_assignment_ids)
+    assignment_resubmissions = _resubmission_counts_for_assignments(
+        detail_assignment_ids, review_types=resub_filter
+    )
+
+    # Build human-readable labels for selected resubmission types (transparency)
+    type_label_map = dict(RESUBMISSION_TYPES)
+    if resub_filter is None:
+        included_type_labels = ['All Review Types']
+    else:
+        included_type_labels = [type_label_map.get(t, t.title()) for t in resub_filter]
 
     return render_template(
         'analyst_report.html',
@@ -2032,6 +2106,7 @@ def analyst_report():
         total_assignments=total_assignments,
         total_completed=total_completed,
         total_analysts=total_analyst_count,
+        total_resubmissions=total_resubmissions,
         Branch=Branch,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -2048,6 +2123,10 @@ def analyst_report():
         detail_sort=detail_sort,
         detail_dir=detail_dir,
         assignment_resubmissions=assignment_resubmissions,
+        # Resubmission type filter
+        resubmission_types=RESUBMISSION_TYPES,
+        resub_selected=resub_selected,
+        included_type_labels=included_type_labels,
     )
 
 
@@ -2063,6 +2142,30 @@ def analyst_report_download():
                             default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
     branch_filter = request.args.get('branch', '')
+
+    # Resubmission type filter (mirrors analyst_report route logic)
+    valid_type_keys = {k for k, _ in RESUBMISSION_TYPES}
+    raw_resub_types = request.args.getlist('resub_type')
+    if not raw_resub_types:
+        resub_filter = _get_default_resubmission_types()
+        if resub_filter is None:
+            resub_selected = ['all']
+        else:
+            resub_selected = [t for t in resub_filter if t in valid_type_keys]
+            if not resub_selected:
+                resub_selected = ['all']
+    elif 'all' in raw_resub_types:
+        resub_filter = None
+        resub_selected = ['all']
+    else:
+        resub_selected = [t for t in raw_resub_types if t in valid_type_keys]
+        resub_filter = resub_selected if resub_selected else None
+
+    type_label_map = dict(RESUBMISSION_TYPES)
+    if resub_filter is None:
+        included_type_labels = 'All Review Types'
+    else:
+        included_type_labels = ', '.join(type_label_map.get(t, t.title()) for t in resub_filter)
 
     q = SampleAssignment.query.join(
         Sample, SampleAssignment.sample_id == Sample.id
@@ -2082,9 +2185,11 @@ def analyst_report_download():
     assignments = q.order_by(User.last_name, SampleAssignment.assigned_date.desc()).all()
 
     assignment_ids = [a.id for a in assignments]
-    resubmissions = _resubmission_counts_for_assignments(assignment_ids)
+    resubmissions = _resubmission_counts_for_assignments(assignment_ids, review_types=resub_filter)
     buf = io.StringIO()
     writer = csv.writer(buf)
+    writer.writerow([f'Included Resubmission Types: {included_type_labels}'])
+    writer.writerow([])
     writer.writerow([
         'Analyst', 'Lab Number', 'Sample Name', 'Laboratory',
         'Test Name', 'Status', 'Assigned Date', 'Date Completed', 'Report Resubmissions',
@@ -2194,6 +2299,15 @@ def settings():
         technical_grouped = 'technical_review_grouped' in request.form
         Setting.set('technical_review_grouped', str(technical_grouped).lower())
 
+        # Default resubmission type filter for Analyst Reports
+        raw_default_resub = request.form.getlist('default_resub_types')
+        valid_type_keys = {k for k, _ in RESUBMISSION_TYPES}
+        if not raw_default_resub or 'all' in raw_default_resub:
+            Setting.set(ANALYST_REPORT_RESUB_TYPES_KEY, 'all')
+        else:
+            chosen = [t for t in raw_default_resub if t in valid_type_keys]
+            Setting.set(ANALYST_REPORT_RESUB_TYPES_KEY, ','.join(chosen) if chosen else 'all')
+
         # Email notifications and SMTP: admin/HOD only
         if is_admin_or_hod:
             email_enabled = 'email_enabled' in request.form
@@ -2236,6 +2350,13 @@ def settings():
     technical_review_grouped = Setting.get_bool('technical_review_grouped', default=False)
     sample_count = Sample.query.count()
 
+    # Default resubmission types for the settings UI
+    default_resub_raw = Setting.get(ANALYST_REPORT_RESUB_TYPES_KEY, 'all')
+    if default_resub_raw == 'all' or not default_resub_raw:
+        default_resub_selected = ['all']
+    else:
+        default_resub_selected = [t.strip() for t in default_resub_raw.split(',') if t.strip()]
+
     smtp_settings = None
     if is_admin:
         smtp_settings = {
@@ -2253,7 +2374,9 @@ def settings():
                            technical_review_grouped=technical_review_grouped,
                            sample_count=sample_count,
                            smtp_settings=smtp_settings,
-                           is_admin_or_hod=is_admin_or_hod)
+                           is_admin_or_hod=is_admin_or_hod,
+                           resubmission_types=RESUBMISSION_TYPES,
+                           default_resub_selected=default_resub_selected)
 
 
 @main_bp.route('/settings/test-email', methods=['POST'])

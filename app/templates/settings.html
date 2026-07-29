@@ -172,6 +172,43 @@
             </div>
         </div>
 
+        <!-- Analyst Report — Default Resubmission Types card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>Analyst Report — Default Resubmission Types</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Choose which resubmission types are counted by default when users open the
+                    Analyst Performance Report. Users can override this per session using the
+                    report's filter controls.
+                </p>
+                <div class="d-flex flex-wrap gap-3 align-items-center">
+                    <div class="form-check">
+                        <input class="form-check-input settings-resub-all" type="checkbox"
+                               id="default_resub_all" name="default_resub_types" value="all"
+                               {% if 'all' in default_resub_selected %}checked{% endif %}
+                               onchange="handleSettingsResubAll(this)">
+                        <label class="form-check-label fw-semibold" for="default_resub_all">
+                            All Review Types (default)
+                        </label>
+                    </div>
+                    {% for type_key, type_label in resubmission_types %}
+                    <div class="form-check">
+                        <input class="form-check-input settings-resub-type" type="checkbox"
+                               id="default_resub_{{ type_key }}" name="default_resub_types"
+                               value="{{ type_key }}"
+                               {% if type_key in default_resub_selected %}checked{% endif %}
+                               onchange="handleSettingsResubType()">
+                        <label class="form-check-label" for="default_resub_{{ type_key }}">
+                            {{ type_label }}
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4">
             <button type="submit" class="btn btn-primary">
                 <i class="bi bi-save me-1"></i>Save Settings
@@ -447,5 +484,32 @@
         var overlay = document.getElementById('progressOverlay');
         overlay.style.display = 'none';
     }
+
+    function handleSettingsResubAll(checkbox) {
+        const typeChecks = document.querySelectorAll('.settings-resub-type');
+        if (checkbox.checked) {
+            typeChecks.forEach(c => { c.checked = false; c.disabled = true; });
+        } else {
+            typeChecks.forEach(c => { c.disabled = false; });
+        }
+    }
+
+    function handleSettingsResubType() {
+        const allCheck = document.getElementById('default_resub_all');
+        const typeChecks = document.querySelectorAll('.settings-resub-type');
+        const anyChecked = Array.from(typeChecks).some(c => c.checked);
+        if (anyChecked) {
+            allCheck.checked = false;
+        }
+    }
+
+    // On page load: enforce consistent state for settings resubmission checkboxes
+    (function () {
+        const allCheck = document.getElementById('default_resub_all');
+        const typeChecks = document.querySelectorAll('.settings-resub-type');
+        if (allCheck && allCheck.checked) {
+            typeChecks.forEach(c => { c.disabled = true; });
+        }
+    })();
 </script>
 {% endblock %}

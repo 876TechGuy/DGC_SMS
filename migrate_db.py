@@ -140,6 +140,8 @@ MIGRATIONS = [
     ('audit_log', 'success', 'BOOLEAN DEFAULT 1'),
     # Accreditation status (Deputy selects before certifying)
     ('samples', 'is_accredited', 'BOOLEAN'),
+    # Resubmission type classification (which review stage triggered the resubmission)
+    ('document_versions', 'resubmission_type', 'VARCHAR(50)'),
 ]
 
 NEW_TABLES = [
