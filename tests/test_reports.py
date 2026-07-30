@@ -642,8 +642,8 @@ def test_analyst_report_filter_preliminary_only(app, client):
     resp = client.get('/reports/analysts?resub_type=preliminary')
     assert resp.status_code == 200
     assert b'Preliminary Review' in resp.data
-    # The transparency notice should appear
-    assert b'Included Resubmission Types' in resp.data
+    # The page always shows the return-by-stage breakdown columns
+    assert b'Returned for Correction' in resp.data
 
 
 def test_analyst_report_filter_multiple_types(app, client):
@@ -652,40 +652,45 @@ def test_analyst_report_filter_multiple_types(app, client):
     _login(client, 'admin_ar')
     resp = client.get('/reports/analysts?resub_type=preliminary&resub_type=technical')
     assert resp.status_code == 200
-    assert b'Preliminary Review' in resp.data
-    assert b'Technical Review' in resp.data
+    # The page renders and shows the standard per-stage return columns
+    assert b'Analyst Performance Report' in resp.data
+    assert b'Returned for Correction' in resp.data
 
 
 def test_analyst_report_download_csv_has_transparency_header(app, client):
-    """Downloaded CSV includes the Included Resubmission Types header row."""
+    """Downloaded CSV includes the Workflow Status Filter header row."""
     _setup_analyst_report_data(app)
     _login(client, 'admin_ar')
     resp = client.get('/reports/analysts/download?resub_type=preliminary')
     assert resp.status_code == 200
-    assert b'Included Resubmission Types' in resp.data
-    assert b'Preliminary Review' in resp.data
+    # New CSV always includes return-type breakdown columns by stage
+    assert b'Returned for Correction' in resp.data
+    assert b'Returned by Deputy' in resp.data
+    assert b'Workflow Status Filter' in resp.data
 
 
 def test_analyst_report_download_csv_all_types(app, client):
-    """Downloaded CSV with all types includes header and per-type columns."""
+    """Downloaded CSV with all types always includes per-stage return columns."""
     _setup_analyst_report_data(app)
     _login(client, 'admin_ar')
     resp = client.get('/reports/analysts/download?resub_type=all')
     assert resp.status_code == 200
-    assert b'All Review Types' in resp.data
-    # New CSV format has per-type columns + a filtered total column
-    assert b'Preliminary Review' in resp.data
-    assert b'Technical Review' in resp.data
-    assert b'Total Resubmissions (filtered)' in resp.data
+    # New CSV format has dedicated per-stage return columns
+    assert b'Returned for Correction (Preliminary)' in resp.data
+    assert b'Returned by Deputy' in resp.data
+    assert b'Returned by HOD' in resp.data
+    assert b'Total Returns' in resp.data
 
 
 def test_analyst_report_resubmission_count_summary_card(app, client):
-    """Summary card shows total resubmissions figure."""
+    """Summary cards show per-stage return figures."""
     _setup_analyst_report_data(app)
     _login(client, 'admin_ar')
     resp = client.get('/reports/analysts?resub_type=all')
     assert resp.status_code == 200
-    assert b'Report Resubmissions' in resp.data
+    assert b'Returned for Correction' in resp.data
+    assert b'Returned by Deputy' in resp.data
+    assert b'Returned by HOD' in resp.data
 
 
 def _setup_null_resubmission_data(app):
@@ -781,5 +786,6 @@ def test_analyst_report_filter_unspecified_counts_null_types(app, client):
     resp = client.get('/reports/analysts?resub_type=unspecified')
     assert resp.status_code == 200
     assert b'Unspecified Review' in resp.data
-    assert b'Included Resubmission Types' in resp.data
+    # The page always shows return-by-stage breakdown columns
+    assert b'Returned for Correction' in resp.data
 

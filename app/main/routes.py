@@ -2091,7 +2091,8 @@ def analyst_report():
                 'completed': 0,
                 'in_progress': 0,
                 'tests': [],
-                'status_counts': {},   # {SampleStatus.name: count}
+                'status_counts': {},       # {SampleStatus.name: count} — current sample workflow status
+                'assign_status_counts': {},  # {AssignmentStatus.name: count} — assignment-level status
             }
         entry = analyst_data[cid]
         entry['total'] += 1
@@ -2100,6 +2101,10 @@ def analyst_report():
         elif a.status != AssignmentStatus.REJECTED:
             entry['in_progress'] += 1
         entry['tests'].append(a)
+        # Track assignment-level status counts
+        if a.status:
+            aname = a.status.name
+            entry['assign_status_counts'][aname] = entry['assign_status_counts'].get(aname, 0) + 1
         # Track sample-level workflow status counts
         s_status = a.sample.status
         if s_status:
@@ -2156,6 +2161,27 @@ def analyst_report():
             )
 
     total_resubmissions = sum(d['resub_filtered'] for d in analyst_data.values())
+
+    # Per-return-type dashboard totals (always computed from full breakdown,
+    # independent of the resub_filter so all cards are always populated).
+    total_returned_correction = sum(
+        d['resub_breakdown'].get('preliminary', 0) for d in analyst_data.values()
+    )
+    total_returned_deputy = sum(
+        d['resub_breakdown'].get('deputy', 0) for d in analyst_data.values()
+    )
+    total_returned_hod = sum(
+        d['resub_breakdown'].get('hod', 0) for d in analyst_data.values()
+    )
+    total_submitted = sum(
+        d['assign_status_counts'].get('REPORT_SUBMITTED', 0) for d in analyst_data.values()
+    )
+    total_certified = sum(
+        d['status_counts'].get('CERTIFIED', 0) for d in analyst_data.values()
+    )
+    total_completed_samples = sum(
+        d['status_counts'].get('COMPLETED', 0) for d in analyst_data.values()
+    )
 
     # Selected analyst detail view with pagination and sort
     selected_analyst = None
@@ -2226,6 +2252,12 @@ def analyst_report():
         total_completed=total_completed,
         total_analysts=total_analyst_count,
         total_resubmissions=total_resubmissions,
+        total_submitted=total_submitted,
+        total_returned_correction=total_returned_correction,
+        total_returned_deputy=total_returned_deputy,
+        total_returned_hod=total_returned_hod,
+        total_certified=total_certified,
+        total_completed_samples=total_completed_samples,
         Branch=Branch,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -2337,26 +2369,34 @@ def analyst_report_download():
     assignment_ids = [a.id for a in assignments]
     type_breakdown = _resubmission_type_breakdown_for_assignments(assignment_ids)
 
-    # Per-type column headers (all known types, always shown for full transparency)
-    type_col_headers = [label for _, label in RESUBMISSION_TYPES]
+    # Return-stage column headers — always included for full transparency
+    # These match the RESUBMISSION_TYPES keys: preliminary, technical, deputy, hod, unspecified
+    return_col_headers = [label for _, label in RESUBMISSION_TYPES]
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([f'Included Resubmission Types: {included_type_labels}'])
     writer.writerow([f'Workflow Status Filter: {included_status_labels}'])
     writer.writerow([])
     writer.writerow([
         'Analyst', 'Lab Number', 'Sample Name', 'Laboratory',
         'Test Name', 'Assignment Status', 'Sample Workflow Status',
         'Assigned Date', 'Date Completed',
-    ] + type_col_headers + ['Total Resubmissions (filtered)'])
+        # Return counts broken out by the stage from which the report was returned
+        'Returned for Correction (Preliminary)',
+        'Returned from Senior Chemist Review',
+        'Returned by Deputy',
+        'Returned by HOD',
+        'Unspecified Returns',
+        'Total Returns',
+    ])
     for a in assignments:
         bdown = type_breakdown.get(a.id, {})
-        type_counts = [bdown.get(type_key, 0) for type_key, _ in RESUBMISSION_TYPES]
-        filtered_total = (
-            sum(bdown.values()) if resub_filter is None
-            else sum(cnt for tk, cnt in bdown.items() if tk in resub_filter)
-        )
+        prelim_cnt  = bdown.get('preliminary', 0)
+        tech_cnt    = bdown.get('technical', 0)
+        deputy_cnt  = bdown.get('deputy', 0)
+        hod_cnt     = bdown.get('hod', 0)
+        unspec_cnt  = bdown.get('unspecified', 0)
+        total_cnt   = prelim_cnt + tech_cnt + deputy_cnt + hod_cnt + unspec_cnt
         writer.writerow([
             a.chemist.full_name if a.chemist else 'Unknown',
             a.sample.lab_number,
@@ -2367,7 +2407,13 @@ def analyst_report_download():
             a.sample.status.value if a.sample.status else '',
             a.assigned_date.strftime('%Y-%m-%d') if a.assigned_date else '',
             a.date_completed.strftime('%Y-%m-%d') if a.date_completed else '',
-        ] + type_counts + [filtered_total])
+            prelim_cnt,
+            tech_cnt,
+            deputy_cnt,
+            hod_cnt,
+            unspec_cnt,
+            total_cnt,
+        ])
 
     q_label = f'_Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     b_label = f'_{branch_filter}' if branch_filter else ''

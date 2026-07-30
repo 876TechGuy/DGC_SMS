@@ -123,13 +123,6 @@
 
 <!-- Active Filters Notice -->
 <div class="d-flex flex-wrap gap-2 mb-3">
-    <div class="alert alert-info py-2 mb-0 d-flex align-items-center gap-2 flex-grow-1" role="alert">
-        <i class="bi bi-info-circle-fill"></i>
-        <span>
-            <strong>Resubmissions counted:</strong>
-            {{ included_type_labels | join(', ') }}
-        </span>
-    </div>
     {% if 'all' not in status_selected %}
     <div class="alert alert-warning py-2 mb-0 d-flex align-items-center gap-2 flex-grow-1" role="alert">
         <i class="bi bi-funnel-fill"></i>
@@ -145,7 +138,7 @@
 
 <!-- Summary Cards -->
 <div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-2">
         <div class="card text-center">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-primary">{{ total_analysts }}</div>
@@ -153,38 +146,60 @@
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-2">
         <div class="card text-center">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-info">{{ total_assignments }}</div>
-                <small class="text-muted">Total Tests Assigned</small>
+                <small class="text-muted">Total Assigned</small>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-2">
         <div class="card text-center">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-success">{{ total_completed }}</div>
-                <small class="text-muted">Tests Completed</small>
+                <div class="fs-3 fw-bold text-warning">{{ total_submitted }}</div>
+                <small class="text-muted">Total Submitted</small>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
-        <div class="card text-center">
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-danger">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-warning">{{ total_assignments - total_completed }}</div>
-                <small class="text-muted">Tests In Progress</small>
+                <div class="fs-3 fw-bold text-danger">{{ total_returned_correction }}</div>
+                <small class="text-muted">Returned for Correction</small>
+                <div class="text-muted" style="font-size:0.7rem;">(from Preliminary Review)</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
-        <div class="card text-center border-secondary">
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-danger">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-secondary">{{ total_resubmissions }}</div>
-                <small class="text-muted">Report Resubmissions</small>
-                <div class="text-muted" style="font-size:0.7rem;">
-                    ({{ included_type_labels | join(', ') }})
-                </div>
+                <div class="fs-3 fw-bold text-danger">{{ total_returned_deputy }}</div>
+                <small class="text-muted">Returned by Deputy</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-danger">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-danger">{{ total_returned_hod }}</div>
+                <small class="text-muted">Returned by HOD</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-success">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-success">{{ total_certified }}</div>
+                <small class="text-muted">Certified</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-success">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-success">{{ total_completed_samples }}</div>
+                <small class="text-muted">Completed</small>
             </div>
         </div>
     </div>
@@ -236,14 +251,18 @@
                     <th class="text-center">In Progress</th>
                     <th class="text-center">Completion Rate</th>
                     <th class="text-center">
-                        Status Breakdown
-                        <small class="text-muted d-block" style="font-size:0.7rem;">(by workflow status)</small>
+                        Workflow Status
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(current assignment status)</small>
                     </th>
-                    <th class="text-center">
-                        Resubmissions
-                        {% if 'all' not in resub_selected %}
-                        <small class="text-muted d-block" style="font-size:0.7rem;">({{ included_type_labels | join(', ') }})</small>
-                        {% endif %}
+                    <th class="text-center text-danger">
+                        Returned for Correction
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(from Preliminary)</small>
+                    </th>
+                    <th class="text-center text-danger">
+                        Returned by Deputy
+                    </th>
+                    <th class="text-center text-danger">
+                        Returned by HOD
                     </th>
                     <th class="text-center">View Detail</th>
                 </tr>
@@ -274,15 +293,11 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
-                        {# Per-status breakdown badges #}
-                        {% set status_counts = analyst.status_counts %}
-                        {% if status_counts %}
+                        {# Per-status breakdown badges — assignment-level statuses #}
+                        {% set asc = analyst.assign_status_counts %}
+                        {% if asc %}
                         <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
-                            {% for status_name, status_label in workflow_statuses %}
-                            {% set cnt = status_counts.get(status_name, 0) %}
-                            {% if cnt > 0 %}
-                            {% set badge_color = {
-                                'REGISTERED': 'secondary',
+                            {% set asc_colors = {
                                 'ASSIGNED': 'primary',
                                 'IN_PROGRESS': 'info',
                                 'REPORT_SUBMITTED': 'warning',
@@ -290,17 +305,26 @@
                                 'UNDER_TECHNICAL_REVIEW': 'warning',
                                 'RETURNED': 'danger',
                                 'ACCEPTED': 'success',
-                                'DEPUTY_REVIEW': 'warning',
-                                'DEPUTY_RETURNED': 'danger',
-                                'CERTIFICATE_PREPARATION': 'info',
-                                'HOD_REVIEW': 'warning',
-                                'HOD_RETURNED': 'danger',
-                                'CERTIFIED': 'success',
                                 'REJECTED': 'danger',
                                 'COMPLETED': 'success',
-                            }.get(status_name, 'secondary') %}
-                            <span class="badge bg-{{ badge_color }}" title="{{ status_label }}">
-                                {{ status_label }}: {{ cnt }}
+                            } %}
+                            {% set asc_labels = {
+                                'ASSIGNED': 'Assigned',
+                                'IN_PROGRESS': 'In Progress',
+                                'REPORT_SUBMITTED': 'Submitted',
+                                'UNDER_PRELIMINARY_REVIEW': 'Prelim Review',
+                                'UNDER_TECHNICAL_REVIEW': 'Sr. Chemist Review',
+                                'RETURNED': 'Returned',
+                                'ACCEPTED': 'Accepted',
+                                'REJECTED': 'Rejected',
+                                'COMPLETED': 'Completed',
+                            } %}
+                            {% for aname, alabel in asc_labels.items() %}
+                            {% set cnt = asc.get(aname, 0) %}
+                            {% if cnt > 0 %}
+                            <span class="badge bg-{{ asc_colors.get(aname, 'secondary') }}"
+                                  title="{{ alabel }}">
+                                {{ alabel }}: {{ cnt }}
                             </span>
                             {% endif %}
                             {% endfor %}
@@ -308,27 +332,22 @@
                         {% else %}—{% endif %}
                     </td>
                     <td class="text-center">
-                        {% if 'all' in resub_selected %}
-                            {# Show per-type breakdown when All Review Types is selected #}
-                            {% set has_any = analyst.resub_breakdown | length > 0 %}
-                            {% if has_any %}
-                            <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
-                                {% for type_key, type_label in resubmission_types %}
-                                {% set cnt = analyst.resub_breakdown.get(type_key, 0) %}
-                                {% if cnt > 0 %}
-                                <span class="badge bg-secondary" title="{{ type_label }}">
-                                    {{ type_label | replace(' Review', '') }}: {{ cnt }}
-                                </span>
-                                {% endif %}
-                                {% endfor %}
-                            </span>
-                            {% else %}—{% endif %}
-                        {% else %}
-                            {% set rtotal = analyst.resub_filtered %}
-                            {% if rtotal > 0 %}
-                            <span class="badge bg-secondary">{{ rtotal }}</span>
-                            {% else %}—{% endif %}
-                        {% endif %}
+                        {% set rc = analyst.resub_breakdown.get('preliminary', 0) %}
+                        {% if rc > 0 %}
+                        <span class="badge bg-danger">{{ rc }}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% set rd = analyst.resub_breakdown.get('deputy', 0) %}
+                        {% if rd > 0 %}
+                        <span class="badge bg-danger">{{ rd }}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% set rh = analyst.resub_breakdown.get('hod', 0) %}
+                        {% if rh > 0 %}
+                        <span class="badge bg-danger">{{ rh }}</span>
+                        {% else %}—{% endif %}
                     </td>
                     <td class="text-center">
                         <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst.id, **{'resub_type': resub_selected, 'status': status_selected}) }}"
@@ -339,7 +358,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted py-4">No analyst data found for this period.</td>
+                    <td colspan="10" class="text-center text-muted py-4">No analyst data found for this period.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -382,28 +401,114 @@
 {% set analyst_has_resubs = selected_analyst.resub_breakdown | length > 0 %}
 <div class="card mb-3">
     <div class="card-header">
-        <i class="bi bi-arrow-repeat me-1"></i>
-        Returns to Analyst by Review Stage — {{ selected_analyst.name }}
-        <small class="text-muted ms-1">(how many times reports were returned for correction from each review stage)</small>
+        <i class="bi bi-person-lines-fill me-1"></i>
+        Analyst Performance Summary — {{ selected_analyst.name }}
     </div>
     <div class="card-body py-2">
         <div class="row g-2">
-            {% for type_key, type_label in resubmission_types %}
-            {% set cnt = selected_analyst.resub_breakdown.get(type_key, 0) %}
+            {# Assignment-status counts #}
+            {% set asc = selected_analyst.assign_status_counts %}
             <div class="col-6 col-sm-4 col-md-2">
-                <div class="card text-center h-100 {% if cnt > 0 %}border-secondary{% else %}border-light{% endif %}">
+                <div class="card text-center h-100 border-primary">
                     <div class="card-body py-2 px-1">
-                        <div class="fs-5 fw-bold {% if cnt > 0 %}text-secondary{% else %}text-muted{% endif %}">{{ cnt }}</div>
-                        <small class="text-muted" style="font-size:0.7rem;">{{ type_label }}</small>
+                        <div class="fs-5 fw-bold text-primary">{{ asc.get('ASSIGNED', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Assigned</small>
                     </div>
                 </div>
             </div>
-            {% endfor %}
             <div class="col-6 col-sm-4 col-md-2">
-                <div class="card text-center h-100 border-dark">
+                <div class="card text-center h-100 border-info">
                     <div class="card-body py-2 px-1">
-                        <div class="fs-5 fw-bold">{{ selected_analyst.resub_breakdown.values() | sum }}</div>
-                        <small class="text-muted" style="font-size:0.7rem;">Total (All Types)</small>
+                        <div class="fs-5 fw-bold text-info">{{ asc.get('IN_PROGRESS', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">In Progress</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-warning">{{ asc.get('REPORT_SUBMITTED', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Report Submitted</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-warning">{{ asc.get('UNDER_PRELIMINARY_REVIEW', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Preliminary Review</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 {% if selected_analyst.resub_breakdown.get('preliminary', 0) > 0 %}border-danger{% else %}border-light{% endif %}">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold {% if selected_analyst.resub_breakdown.get('preliminary', 0) > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ selected_analyst.resub_breakdown.get('preliminary', 0) }}
+                        </div>
+                        <small class="text-muted" style="font-size:0.7rem;">Returned for Correction</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-success">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-success">{{ asc.get('ACCEPTED', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Accepted</small>
+                    </div>
+                </div>
+            </div>
+            {# Sample-level status counts for deputy/hod stages #}
+            {% set sc = selected_analyst.status_counts %}
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-warning">{{ sc.get('DEPUTY_REVIEW', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Deputy Review</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 {% if selected_analyst.resub_breakdown.get('deputy', 0) > 0 %}border-danger{% else %}border-light{% endif %}">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold {% if selected_analyst.resub_breakdown.get('deputy', 0) > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ selected_analyst.resub_breakdown.get('deputy', 0) }}
+                        </div>
+                        <small class="text-muted" style="font-size:0.7rem;">Returned by Deputy</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-warning">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-warning">{{ sc.get('HOD_REVIEW', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">HOD Review</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 {% if selected_analyst.resub_breakdown.get('hod', 0) > 0 %}border-danger{% else %}border-light{% endif %}">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold {% if selected_analyst.resub_breakdown.get('hod', 0) > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ selected_analyst.resub_breakdown.get('hod', 0) }}
+                        </div>
+                        <small class="text-muted" style="font-size:0.7rem;">Returned by HOD</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-success">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-success">{{ sc.get('CERTIFIED', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Certified</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-success">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold text-success">{{ asc.get('COMPLETED', 0) }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Completed</small>
                     </div>
                 </div>
             </div>
@@ -485,11 +590,11 @@
                         </a>
                     </th>
                     <th class="text-center">
-                        Returns from Review
-                        <small class="text-muted d-block" style="font-size:0.7rem;">
-                            ({{ included_type_labels | join(', ') }})
-                        </small>
+                        <span class="text-danger">Returned for Correction</span>
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(Preliminary)</small>
                     </th>
+                    <th class="text-center text-danger">Returned by Deputy</th>
+                    <th class="text-center text-danger">Returned by HOD</th>
                 </tr>
             </thead>
             <tbody>
@@ -529,35 +634,30 @@
                     </td>
                     <td>{{ a.assigned_date.strftime('%d %b %Y') if a.assigned_date else '—' }}</td>
                     <td>{{ a.date_completed.strftime('%d %b %Y') if a.date_completed else '—' }}</td>
+                    {# Return counts broken out by stage — always visible #}
+                    {% set bdown = assignment_type_breakdowns.get(a.id, {}) %}
                     <td class="text-center">
-                        {% set resub = assignment_resubmissions.get(a.id, 0) %}
-                        {% if 'all' in resub_selected %}
-                            {# Show per-type breakdown for each assignment #}
-                            {% set bdown = assignment_type_breakdowns.get(a.id, {}) %}
-                            {% if bdown %}
-                            <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
-                               {% for type_key, type_label in resubmission_types %}
-                               {% set cnt = bdown.get(type_key, 0) %}
-                               {% if cnt > 0 %}
-                               <span class="badge bg-secondary" title="{{ type_label }}">
-                                   {{ type_label | replace(' Review', '') }}: {{ cnt }}
-                               </span>
-                               {% endif %}
-                               {% endfor %}
-                            </span>
-                            {% else %}—{% endif %}
-                        {% else %}
-                            {% if resub > 0 %}
-                            <span class="badge bg-secondary" title="{{ resub }} return{{ 's' if resub != 1 else '' }} for correction">
-                               {{ resub }}
-                            </span>
-                            {% else %}—{% endif %}
-                        {% endif %}
+                        {% set prelim_cnt = bdown.get('preliminary', 0) %}
+                        {% if prelim_cnt > 0 %}
+                        <span class="badge bg-danger">{{ prelim_cnt }}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% set deputy_cnt = bdown.get('deputy', 0) %}
+                        {% if deputy_cnt > 0 %}
+                        <span class="badge bg-danger">{{ deputy_cnt }}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% set hod_cnt = bdown.get('hod', 0) %}
+                        {% if hod_cnt > 0 %}
+                        <span class="badge bg-danger">{{ hod_cnt }}</span>
+                        {% else %}—{% endif %}
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="9" class="text-center text-muted py-3">No tests found.</td>
+                    <td colspan="11" class="text-center text-muted py-3">No tests found.</td>
                 </tr>
                 {% endfor %}
             </tbody>
