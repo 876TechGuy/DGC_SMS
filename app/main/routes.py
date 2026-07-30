@@ -687,6 +687,37 @@ def _resubmission_counts_for_assignments(assignment_ids, review_types=None):
     return {aid: cnt for aid, cnt in rows}
 
 
+def _resubmission_type_breakdown_for_assignments(assignment_ids):
+    """Return a dict of {assignment_id: {type_key: count}} for the given assignments.
+
+    Counts every DocumentVersion row with document_type='report' and
+    upload_label='resubmission', grouped by both assignment_id and
+    resubmission_type.  A NULL resubmission_type (legacy data) is mapped
+    to the key 'unspecified'.
+    """
+    if not assignment_ids:
+        return {}
+    from sqlalchemy import func
+    rows = db.session.query(
+        DocumentVersion.assignment_id,
+        DocumentVersion.resubmission_type,
+        func.count(DocumentVersion.id),
+    ).filter(
+        DocumentVersion.assignment_id.in_(assignment_ids),
+        DocumentVersion.document_type == 'report',
+        DocumentVersion.upload_label == 'resubmission',
+    ).group_by(
+        DocumentVersion.assignment_id, DocumentVersion.resubmission_type
+    ).all()
+    result = {}
+    for aid, rtype, cnt in rows:
+        type_key = rtype if rtype else 'unspecified'
+        if aid not in result:
+            result[aid] = {}
+        result[aid][type_key] = result[aid].get(type_key, 0) + cnt
+    return result
+
+
 @main_bp.route('/kpi/report')
 @login_required
 def kpi_report():
@@ -2057,12 +2088,26 @@ def analyst_report():
     total_assignments = len(assignments)
     total_completed = sum(d['completed'] for d in analyst_data.values())
 
-    # Total resubmissions respecting the selected filter
+    # Fetch per-type resubmission breakdown for all assignments in one query,
+    # then aggregate per analyst so we can display per-type counts.
     all_assignment_ids = [a.id for a in assignments]
-    all_resubmissions_map = _resubmission_counts_for_assignments(
-        all_assignment_ids, review_types=resub_filter
-    )
-    total_resubmissions = sum(all_resubmissions_map.values())
+    type_breakdown_by_assignment = _resubmission_type_breakdown_for_assignments(all_assignment_ids)
+
+    for cid, data in analyst_data.items():
+        breakdown = {}
+        for assign in data['tests']:
+            for tk, cnt in type_breakdown_by_assignment.get(assign.id, {}).items():
+                breakdown[tk] = breakdown.get(tk, 0) + cnt
+        data['resub_breakdown'] = breakdown
+        # Filtered total for this analyst (respects the selected type filter)
+        if resub_filter is None:
+            data['resub_filtered'] = sum(breakdown.values())
+        else:
+            data['resub_filtered'] = sum(
+                cnt for tk, cnt in breakdown.items() if tk in resub_filter
+            )
+
+    total_resubmissions = sum(d['resub_filtered'] for d in analyst_data.values())
 
     # Selected analyst detail view with pagination and sort
     selected_analyst = None
@@ -2101,11 +2146,17 @@ def analyst_report():
         d_start = (detail_page - 1) * DETAIL_PER_PAGE
         detail_items = tests[d_start:d_start + DETAIL_PER_PAGE]
 
-    # Resubmission counts per assignment for the detail view (respect filter)
+    # Per-assignment type breakdown and filtered totals for the detail table
     detail_assignment_ids = [a.id for a in detail_items]
-    assignment_resubmissions = _resubmission_counts_for_assignments(
-        detail_assignment_ids, review_types=resub_filter
-    )
+    assignment_type_breakdowns = {
+        aid: type_breakdown_by_assignment.get(aid, {})
+        for aid in detail_assignment_ids
+    }
+    assignment_resubmissions = {
+        aid: (sum(bdown.values()) if resub_filter is None
+              else sum(cnt for tk, cnt in bdown.items() if tk in resub_filter))
+        for aid, bdown in assignment_type_breakdowns.items()
+    }
 
     # Build human-readable labels for selected resubmission types (transparency)
     type_label_map = dict(RESUBMISSION_TYPES)
@@ -2143,10 +2194,12 @@ def analyst_report():
         detail_sort=detail_sort,
         detail_dir=detail_dir,
         assignment_resubmissions=assignment_resubmissions,
+        assignment_type_breakdowns=assignment_type_breakdowns,
         # Resubmission type filter
         resubmission_types=RESUBMISSION_TYPES,
         resub_selected=resub_selected,
         included_type_labels=included_type_labels,
+        type_label_map=type_label_map,
     )
 
 
@@ -2205,16 +2258,26 @@ def analyst_report_download():
     assignments = q.order_by(User.last_name, SampleAssignment.assigned_date.desc()).all()
 
     assignment_ids = [a.id for a in assignments]
-    resubmissions = _resubmission_counts_for_assignments(assignment_ids, review_types=resub_filter)
+    type_breakdown = _resubmission_type_breakdown_for_assignments(assignment_ids)
+
+    # Per-type column headers (all known types, always shown for full transparency)
+    type_col_headers = [label for _, label in RESUBMISSION_TYPES]
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([f'Included Resubmission Types: {included_type_labels}'])
     writer.writerow([])
     writer.writerow([
         'Analyst', 'Lab Number', 'Sample Name', 'Laboratory',
-        'Test Name', 'Status', 'Assigned Date', 'Date Completed', 'Report Resubmissions',
-    ])
+        'Test Name', 'Status', 'Assigned Date', 'Date Completed',
+    ] + type_col_headers + ['Total Resubmissions (filtered)'])
     for a in assignments:
+        bdown = type_breakdown.get(a.id, {})
+        type_counts = [bdown.get(type_key, 0) for type_key, _ in RESUBMISSION_TYPES]
+        filtered_total = (
+            sum(bdown.values()) if resub_filter is None
+            else sum(cnt for tk, cnt in bdown.items() if tk in resub_filter)
+        )
         writer.writerow([
             a.chemist.full_name if a.chemist else 'Unknown',
             a.sample.lab_number,
@@ -2224,8 +2287,7 @@ def analyst_report_download():
             a.status.value if a.status else '',
             a.assigned_date.strftime('%Y-%m-%d') if a.assigned_date else '',
             a.date_completed.strftime('%Y-%m-%d') if a.date_completed else '',
-            resubmissions.get(a.id, 0),
-        ])
+        ] + type_counts + [filtered_total])
 
     q_label = f'_Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     b_label = f'_{branch_filter}' if branch_filter else ''

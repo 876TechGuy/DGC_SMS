@@ -193,6 +193,12 @@
                     </th>
                     <th class="text-center">In Progress</th>
                     <th class="text-center">Completion Rate</th>
+                    <th class="text-center">
+                        Resubmissions
+                        {% if 'all' not in resub_selected %}
+                        <small class="text-muted d-block" style="font-size:0.7rem;">({{ included_type_labels | join(', ') }})</small>
+                        {% endif %}
+                    </th>
                     <th class="text-center">View Detail</th>
                 </tr>
             </thead>
@@ -222,6 +228,29 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
+                        {% if 'all' in resub_selected %}
+                            {# Show per-type breakdown when All Review Types is selected #}
+                            {% set has_any = analyst.resub_breakdown | length > 0 %}
+                            {% if has_any %}
+                            <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
+                                {% for type_key, type_label in resubmission_types %}
+                                {% set cnt = analyst.resub_breakdown.get(type_key, 0) %}
+                                {% if cnt > 0 %}
+                                <span class="badge bg-secondary" title="{{ type_label }}">
+                                    {{ type_label | replace(' Review', '') }}: {{ cnt }}
+                                </span>
+                                {% endif %}
+                                {% endfor %}
+                            </span>
+                            {% else %}—{% endif %}
+                        {% else %}
+                            {% set rtotal = analyst.resub_filtered %}
+                            {% if rtotal > 0 %}
+                            <span class="badge bg-secondary">{{ rtotal }}</span>
+                            {% else %}—{% endif %}
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
                         <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst.id, **{'resub_type': resub_selected}) }}"
                            class="btn btn-outline-secondary btn-sm py-0 px-2">
                             <i class="bi bi-eye"></i>
@@ -230,7 +259,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6" class="text-center text-muted py-4">No analyst data found for this period.</td>
+                    <td colspan="7" class="text-center text-muted py-4">No analyst data found for this period.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -268,6 +297,39 @@
     'Returned for Correction': 'danger', 'Accepted': 'success',
     'Rejected': 'danger', 'Completed': 'success',
 } %}
+
+<!-- Resubmissions by Type panel for selected analyst -->
+{% set analyst_has_resubs = selected_analyst.resub_breakdown | length > 0 %}
+<div class="card mb-3">
+    <div class="card-header">
+        <i class="bi bi-arrow-repeat me-1"></i>
+        Resubmissions by Type — {{ selected_analyst.name }}
+    </div>
+    <div class="card-body py-2">
+        <div class="row g-2">
+            {% for type_key, type_label in resubmission_types %}
+            {% set cnt = selected_analyst.resub_breakdown.get(type_key, 0) %}
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 {% if cnt > 0 %}border-secondary{% else %}border-light{% endif %}">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold {% if cnt > 0 %}text-secondary{% else %}text-muted{% endif %}">{{ cnt }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">{{ type_label }}</small>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 border-dark">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold">{{ selected_analyst.resub_breakdown.values() | sum }}</div>
+                        <small class="text-muted" style="font-size:0.7rem;">Total (All Types)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h6 class="mb-0">
@@ -371,11 +433,28 @@
                     <td>{{ a.date_completed.strftime('%d %b %Y') if a.date_completed else '—' }}</td>
                     <td class="text-center">
                         {% set resub = assignment_resubmissions.get(a.id, 0) %}
-                        {% if resub > 0 %}
-                        <span class="badge bg-secondary" title="{{ resub }} resubmission{{ 's' if resub != 1 else '' }}">
-                            {{ resub }}
-                        </span>
-                        {% else %}—{% endif %}
+                        {% if 'all' in resub_selected %}
+                            {# Show per-type breakdown for each assignment #}
+                            {% set bdown = assignment_type_breakdowns.get(a.id, {}) %}
+                            {% if bdown %}
+                            <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
+                                {% for type_key, type_label in resubmission_types %}
+                                {% set cnt = bdown.get(type_key, 0) %}
+                                {% if cnt > 0 %}
+                                <span class="badge bg-secondary" title="{{ type_label }}">
+                                    {{ type_label | replace(' Review', '') }}: {{ cnt }}
+                                </span>
+                                {% endif %}
+                                {% endfor %}
+                            </span>
+                            {% else %}—{% endif %}
+                        {% else %}
+                            {% if resub > 0 %}
+                            <span class="badge bg-secondary" title="{{ resub }} resubmission{{ 's' if resub != 1 else '' }}">
+                                {{ resub }}
+                            </span>
+                            {% else %}—{% endif %}
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}
