@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
     <h2><i class="bi bi-people"></i> Analyst Performance Report</h2>
-    <a href="{{ url_for('main.analyst_report_download', year=year, quarter=quarter, branch=branch_filter, **{'resub_type': resub_selected}) }}"
+    <a href="{{ url_for('main.analyst_report_download', year=year, quarter=quarter, branch=branch_filter, **{'resub_type': resub_selected, 'status': status_selected}) }}"
        class="btn btn-outline-primary btn-sm">
         <i class="bi bi-download me-1"></i>Download CSV
     </a>
@@ -59,7 +59,36 @@
             </div>
             <div class="col-12">
                 <label class="form-label small fw-semibold mb-1">
+                    <i class="bi bi-diagram-3 me-1"></i>Workflow Status Filter
+                    <span class="text-muted fw-normal">(filter which assignments appear in the report)</span>
+                </label>
+                <div class="d-flex flex-wrap gap-3 align-items-center">
+                    <div class="form-check">
+                        <input class="form-check-input status-all-check" type="checkbox"
+                               id="status_all" name="status" value="all"
+                               {% if 'all' in status_selected %}checked{% endif %}
+                               onchange="handleStatusAllChange(this)">
+                        <label class="form-check-label fw-semibold" for="status_all">
+                            All Statuses
+                        </label>
+                    </div>
+                    {% for status_name, status_label in workflow_statuses %}
+                    <div class="form-check">
+                        <input class="form-check-input status-type-check" type="checkbox"
+                               id="status_{{ status_name }}" name="status" value="{{ status_name }}"
+                               {% if status_name in status_selected %}checked{% endif %}
+                               onchange="handleStatusTypeChange()">
+                        <label class="form-check-label" for="status_{{ status_name }}">
+                            {{ status_label }}
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label small fw-semibold mb-1">
                     <i class="bi bi-funnel me-1"></i>Resubmission Types to Count
+                    <span class="text-muted fw-normal">(counts returns to analyst from each review stage)</span>
                 </label>
                 <div class="d-flex flex-wrap gap-3 align-items-center">
                     <div class="form-check">
@@ -92,13 +121,26 @@
     </div>
 </div>
 
-<!-- Transparency Notice -->
-<div class="alert alert-info py-2 mb-3 d-flex align-items-center gap-2" role="alert">
-    <i class="bi bi-info-circle-fill"></i>
-    <span>
-        <strong>Included Resubmission Types:</strong>
-        {{ included_type_labels | join(', ') }}
-    </span>
+<!-- Active Filters Notice -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="alert alert-info py-2 mb-0 d-flex align-items-center gap-2 flex-grow-1" role="alert">
+        <i class="bi bi-info-circle-fill"></i>
+        <span>
+            <strong>Resubmissions counted:</strong>
+            {{ included_type_labels | join(', ') }}
+        </span>
+    </div>
+    {% if 'all' not in status_selected %}
+    <div class="alert alert-warning py-2 mb-0 d-flex align-items-center gap-2 flex-grow-1" role="alert">
+        <i class="bi bi-funnel-fill"></i>
+        <span>
+            <strong>Workflow status filter active:</strong>
+            {% for s in status_selected %}
+            <span class="badge bg-secondary">{{ workflow_statuses | selectattr('0', 'equalto', s) | map(attribute='1') | first | default(s) }}</span>
+            {% endfor %}
+        </span>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Summary Cards -->
@@ -163,7 +205,7 @@
                 <tr>
                     {% set toggle_dir = 'asc' if sort_by == 'name' and sort_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='name', dir=toggle_dir, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='name', dir=toggle_dir, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Analyst
                             {% if sort_by == 'name' %}
@@ -173,7 +215,7 @@
                     </th>
                     {% set toggle_dir = 'asc' if sort_by == 'total' and sort_dir == 'desc' else 'desc' %}
                     <th class="text-center">
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='total', dir=toggle_dir, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='total', dir=toggle_dir, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Total Assigned
                             {% if sort_by == 'total' %}
@@ -183,7 +225,7 @@
                     </th>
                     {% set toggle_dir = 'asc' if sort_by == 'completed' and sort_dir == 'desc' else 'desc' %}
                     <th class="text-center">
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='completed', dir=toggle_dir, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort='completed', dir=toggle_dir, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Completed
                             {% if sort_by == 'completed' %}
@@ -193,6 +235,10 @@
                     </th>
                     <th class="text-center">In Progress</th>
                     <th class="text-center">Completion Rate</th>
+                    <th class="text-center">
+                        Status Breakdown
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(by workflow status)</small>
+                    </th>
                     <th class="text-center">
                         Resubmissions
                         {% if 'all' not in resub_selected %}
@@ -228,6 +274,40 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
+                        {# Per-status breakdown badges #}
+                        {% set status_counts = analyst.status_counts %}
+                        {% if status_counts %}
+                        <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
+                            {% for status_name, status_label in workflow_statuses %}
+                            {% set cnt = status_counts.get(status_name, 0) %}
+                            {% if cnt > 0 %}
+                            {% set badge_color = {
+                                'REGISTERED': 'secondary',
+                                'ASSIGNED': 'primary',
+                                'IN_PROGRESS': 'info',
+                                'REPORT_SUBMITTED': 'warning',
+                                'UNDER_PRELIMINARY_REVIEW': 'warning',
+                                'UNDER_TECHNICAL_REVIEW': 'warning',
+                                'RETURNED': 'danger',
+                                'ACCEPTED': 'success',
+                                'DEPUTY_REVIEW': 'warning',
+                                'DEPUTY_RETURNED': 'danger',
+                                'CERTIFICATE_PREPARATION': 'info',
+                                'HOD_REVIEW': 'warning',
+                                'HOD_RETURNED': 'danger',
+                                'CERTIFIED': 'success',
+                                'REJECTED': 'danger',
+                                'COMPLETED': 'success',
+                            }.get(status_name, 'secondary') %}
+                            <span class="badge bg-{{ badge_color }}" title="{{ status_label }}">
+                                {{ status_label }}: {{ cnt }}
+                            </span>
+                            {% endif %}
+                            {% endfor %}
+                        </span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="text-center">
                         {% if 'all' in resub_selected %}
                             {# Show per-type breakdown when All Review Types is selected #}
                             {% set has_any = analyst.resub_breakdown | length > 0 %}
@@ -251,7 +331,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst.id, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst.id, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="btn btn-outline-secondary btn-sm py-0 px-2">
                             <i class="bi bi-eye"></i>
                         </a>
@@ -259,7 +339,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center text-muted py-4">No analyst data found for this period.</td>
+                    <td colspan="8" class="text-center text-muted py-4">No analyst data found for this period.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -271,15 +351,15 @@
         <nav aria-label="Analyst summary pagination" class="d-flex justify-content-center">
             <ul class="pagination pagination-sm mb-0">
                 <li class="page-item {% if summary_page <= 1 %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=summary_page - 1, **{'resub_type': resub_selected}) }}">&laquo;</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=summary_page - 1, **{'resub_type': resub_selected, 'status': status_selected}) }}">&laquo;</a>
                 </li>
                 {% for p in range(1, total_summary_pages + 1) %}
                 <li class="page-item {% if p == summary_page %}active{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=p, **{'resub_type': resub_selected}) }}">{{ p }}</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=p, **{'resub_type': resub_selected, 'status': status_selected}) }}">{{ p }}</a>
                 </li>
                 {% endfor %}
                 <li class="page-item {% if summary_page >= total_summary_pages %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=summary_page + 1, **{'resub_type': resub_selected}) }}">&raquo;</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, sort=sort_by, dir=sort_dir, summary_page=summary_page + 1, **{'resub_type': resub_selected, 'status': status_selected}) }}">&raquo;</a>
                 </li>
             </ul>
         </nav>
@@ -298,12 +378,13 @@
     'Rejected': 'danger', 'Completed': 'success',
 } %}
 
-<!-- Resubmissions by Type panel for selected analyst -->
+<!-- Resubmissions by Return Stage panel for selected analyst -->
 {% set analyst_has_resubs = selected_analyst.resub_breakdown | length > 0 %}
 <div class="card mb-3">
     <div class="card-header">
         <i class="bi bi-arrow-repeat me-1"></i>
-        Resubmissions by Type — {{ selected_analyst.name }}
+        Returns to Analyst by Review Stage — {{ selected_analyst.name }}
+        <small class="text-muted ms-1">(how many times reports were returned for correction from each review stage)</small>
     </div>
     <div class="card-body py-2">
         <div class="row g-2">
@@ -337,7 +418,7 @@
             <span class="badge bg-success ms-1">{{ selected_analyst.completed }} completed</span>
             <span class="badge bg-warning text-dark ms-1">{{ selected_analyst.in_progress }} in progress</span>
         </h6>
-        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, **{'resub_type': resub_selected}) }}"
+        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, **{'resub_type': resub_selected, 'status': status_selected}) }}"
            class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left me-1"></i>Back to Summary
         </a>
@@ -348,7 +429,7 @@
                 <tr>
                     {% set td = 'asc' if detail_sort == 'lab' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='lab', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='lab', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Lab Number
                             {% if detail_sort == 'lab' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
@@ -356,7 +437,7 @@
                     </th>
                     {% set td = 'asc' if detail_sort == 'sample' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='sample', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='sample', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Sample Name
                             {% if detail_sort == 'sample' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
@@ -364,7 +445,7 @@
                     </th>
                     {% set td = 'asc' if detail_sort == 'lab_type' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='lab_type', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='lab_type', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Laboratory
                             {% if detail_sort == 'lab_type' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
@@ -372,7 +453,7 @@
                     </th>
                     {% set td = 'asc' if detail_sort == 'test' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='test', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='test', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Test Name
                             {% if detail_sort == 'test' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
@@ -380,15 +461,16 @@
                     </th>
                     {% set td = 'asc' if detail_sort == 'status' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='status', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='status', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
-                            Status
+                            Assignment Status
                             {% if detail_sort == 'status' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
                         </a>
                     </th>
+                    <th class="text-center">Sample Workflow Status</th>
                     {% set td = 'asc' if detail_sort == 'assigned' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='assigned', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='assigned', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Assigned
                             {% if detail_sort == 'assigned' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
@@ -396,14 +478,14 @@
                     </th>
                     {% set td = 'asc' if detail_sort == 'completed_date' and detail_dir == 'desc' else 'desc' %}
                     <th>
-                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='completed_date', detail_dir=td, detail_page=1, **{'resub_type': resub_selected}) }}"
+                        <a href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort='completed_date', detail_dir=td, detail_page=1, **{'resub_type': resub_selected, 'status': status_selected}) }}"
                            class="text-decoration-none text-dark">
                             Completed
                             {% if detail_sort == 'completed_date' %}<i class="bi bi-caret-{{ 'up' if detail_dir == 'asc' else 'down' }}-fill small"></i>{% endif %}
                         </a>
                     </th>
                     <th class="text-center">
-                        Resubmissions
+                        Returns from Review
                         <small class="text-muted d-block" style="font-size:0.7rem;">
                             ({{ included_type_labels | join(', ') }})
                         </small>
@@ -411,6 +493,15 @@
                 </tr>
             </thead>
             <tbody>
+                {% set sample_status_colors = {
+                    'Registered': 'secondary', 'Assigned': 'primary', 'In Progress': 'info',
+                    'Report Submitted': 'warning', 'Preliminary Review': 'warning',
+                    'Senior Chemist Review': 'warning', 'Returned for Correction': 'danger',
+                    'Accepted': 'success', 'Deputy Review': 'warning',
+                    'Returned by Deputy': 'danger', 'Certificate Preparation': 'info',
+                    'HOD Review': 'warning', 'Returned by HOD': 'danger',
+                    'Certified': 'success', 'Rejected': 'danger', 'Completed': 'success',
+                } %}
                 {% for a in detail_items %}
                 <tr>
                     <td>
@@ -429,6 +520,13 @@
                             {{ a.status.value }}
                         </span>
                     </td>
+                    <td class="text-center">
+                        {% if a.sample.status %}
+                        <span class="badge bg-{{ sample_status_colors.get(a.sample.status.value, 'secondary') }}">
+                            {{ a.sample.status.value }}
+                        </span>
+                        {% else %}—{% endif %}
+                    </td>
                     <td>{{ a.assigned_date.strftime('%d %b %Y') if a.assigned_date else '—' }}</td>
                     <td>{{ a.date_completed.strftime('%d %b %Y') if a.date_completed else '—' }}</td>
                     <td class="text-center">
@@ -438,20 +536,20 @@
                             {% set bdown = assignment_type_breakdowns.get(a.id, {}) %}
                             {% if bdown %}
                             <span class="d-inline-flex flex-wrap gap-1 justify-content-center">
-                                {% for type_key, type_label in resubmission_types %}
-                                {% set cnt = bdown.get(type_key, 0) %}
-                                {% if cnt > 0 %}
-                                <span class="badge bg-secondary" title="{{ type_label }}">
-                                    {{ type_label | replace(' Review', '') }}: {{ cnt }}
-                                </span>
-                                {% endif %}
-                                {% endfor %}
+                               {% for type_key, type_label in resubmission_types %}
+                               {% set cnt = bdown.get(type_key, 0) %}
+                               {% if cnt > 0 %}
+                               <span class="badge bg-secondary" title="{{ type_label }}">
+                                   {{ type_label | replace(' Review', '') }}: {{ cnt }}
+                               </span>
+                               {% endif %}
+                               {% endfor %}
                             </span>
                             {% else %}—{% endif %}
                         {% else %}
                             {% if resub > 0 %}
-                            <span class="badge bg-secondary" title="{{ resub }} resubmission{{ 's' if resub != 1 else '' }}">
-                                {{ resub }}
+                            <span class="badge bg-secondary" title="{{ resub }} return{{ 's' if resub != 1 else '' }} for correction">
+                               {{ resub }}
                             </span>
                             {% else %}—{% endif %}
                         {% endif %}
@@ -459,7 +557,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted py-3">No tests found.</td>
+                    <td colspan="9" class="text-center text-muted py-3">No tests found.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -475,19 +573,19 @@
         <nav aria-label="Detail pagination">
             <ul class="pagination pagination-sm mb-0">
                 <li class="page-item {% if detail_page <= 1 %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=detail_page - 1, **{'resub_type': resub_selected}) }}">&laquo;</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=detail_page - 1, **{'resub_type': resub_selected, 'status': status_selected}) }}">&laquo;</a>
                 </li>
                 {% for p in range(1, detail_total_pages + 1) %}
                 {% if p == 1 or p == detail_total_pages or (p >= detail_page - 2 and p <= detail_page + 2) %}
                 <li class="page-item {% if p == detail_page %}active{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=p, **{'resub_type': resub_selected}) }}">{{ p }}</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=p, **{'resub_type': resub_selected, 'status': status_selected}) }}">{{ p }}</a>
                 </li>
                 {% elif p == detail_page - 3 or p == detail_page + 3 %}
                 <li class="page-item disabled"><span class="page-link">…</span></li>
                 {% endif %}
                 {% endfor %}
                 <li class="page-item {% if detail_page >= detail_total_pages %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=detail_page + 1, **{'resub_type': resub_selected}) }}">&raquo;</a>
+                    <a class="page-link" href="{{ url_for('main.analyst_report', year=year, quarter=quarter, branch=branch_filter, analyst_id=analyst_id, detail_sort=detail_sort, detail_dir=detail_dir, detail_page=detail_page + 1, **{'resub_type': resub_selected, 'status': status_selected}) }}">&raquo;</a>
                 </li>
             </ul>
         </nav>
@@ -525,12 +623,36 @@ function handleResubTypeChange() {
     }
 }
 
+function handleStatusAllChange(checkbox) {
+    const typeChecks = document.querySelectorAll('.status-type-check');
+    if (checkbox.checked) {
+        typeChecks.forEach(c => { c.checked = false; c.disabled = true; });
+    } else {
+        typeChecks.forEach(c => { c.disabled = false; });
+    }
+}
+
+function handleStatusTypeChange() {
+    const allCheck = document.getElementById('status_all');
+    const typeChecks = document.querySelectorAll('.status-type-check');
+    const anyChecked = Array.from(typeChecks).some(c => c.checked);
+    if (anyChecked) {
+        allCheck.checked = false;
+    }
+}
+
 // On page load: enforce consistent state
 (function () {
-    const allCheck = document.getElementById('resub_all');
-    const typeChecks = document.querySelectorAll('.resub-type-check');
-    if (allCheck && allCheck.checked) {
-        typeChecks.forEach(c => { c.disabled = true; });
+    const resubAllCheck = document.getElementById('resub_all');
+    const resubTypeChecks = document.querySelectorAll('.resub-type-check');
+    if (resubAllCheck && resubAllCheck.checked) {
+        resubTypeChecks.forEach(c => { c.disabled = true; });
+    }
+
+    const statusAllCheck = document.getElementById('status_all');
+    const statusTypeChecks = document.querySelectorAll('.status-type-check');
+    if (statusAllCheck && statusAllCheck.checked) {
+        statusTypeChecks.forEach(c => { c.disabled = true; });
     }
 })();
 </script>

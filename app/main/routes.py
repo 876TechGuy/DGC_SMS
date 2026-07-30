@@ -33,10 +33,31 @@ REPORT_PER_PAGE = 25
 # to human-readable display labels used in the Analyst Report filter UI.
 RESUBMISSION_TYPES = [
     ('preliminary',  'Preliminary Review'),
-    ('technical',    'Technical Review'),
+    ('technical',    'Senior Chemist Review'),
     ('deputy',       'Deputy Review'),
     ('hod',          'HOD Review'),
     ('unspecified',  'Unspecified Review'),
+]
+
+# All workflow statuses that can be used to filter the Analyst Report.
+# These map to SampleStatus enum values via their .name attribute.
+WORKFLOW_STATUSES = [
+    ('REGISTERED',            'Registered'),
+    ('ASSIGNED',              'Assigned'),
+    ('IN_PROGRESS',           'In Progress'),
+    ('REPORT_SUBMITTED',      'Report Submitted'),
+    ('UNDER_PRELIMINARY_REVIEW', 'Preliminary Review'),
+    ('UNDER_TECHNICAL_REVIEW',   'Senior Chemist Review'),
+    ('RETURNED',              'Returned for Correction'),
+    ('ACCEPTED',              'Accepted'),
+    ('DEPUTY_REVIEW',         'Deputy Review'),
+    ('DEPUTY_RETURNED',       'Returned by Deputy'),
+    ('CERTIFICATE_PREPARATION', 'Certificate Preparation'),
+    ('HOD_REVIEW',            'HOD Review'),
+    ('HOD_RETURNED',          'Returned by HOD'),
+    ('CERTIFIED',             'Certified'),
+    ('REJECTED',              'Rejected'),
+    ('COMPLETED',             'Completed'),
 ]
 
 # Default setting key stored in the Setting table.
@@ -2020,6 +2041,17 @@ def analyst_report():
         resub_selected = [t for t in raw_resub_types if t in valid_type_keys]
         resub_filter = resub_selected if resub_selected else None
 
+    # Workflow status filter: multi-select by SampleStatus name.
+    # 'status' is a multi-value list; empty means show all statuses.
+    valid_status_names = {name for name, _ in WORKFLOW_STATUSES}
+    raw_status_filter = request.args.getlist('status')
+    if not raw_status_filter or 'all' in raw_status_filter:
+        status_filter_names = []   # empty = no filter
+        status_selected = ['all']
+    else:
+        status_filter_names = [s for s in raw_status_filter if s in valid_status_names]
+        status_selected = status_filter_names if status_filter_names else ['all']
+
     # Build base query on assignments
     q = SampleAssignment.query.join(
         Sample, SampleAssignment.sample_id == Sample.id
@@ -2034,9 +2066,20 @@ def analyst_report():
         except KeyError:
             pass
 
+    # Apply workflow status filter on the sample's current status
+    if status_filter_names:
+        resolved_statuses = []
+        for name in status_filter_names:
+            try:
+                resolved_statuses.append(SampleStatus[name])
+            except KeyError:
+                pass
+        if resolved_statuses:
+            q = q.filter(Sample.status.in_(resolved_statuses))
+
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
 
-    # Group by analyst
+    # Group by analyst; track per-status counts for breakdown display
     analyst_data = {}
     for a in assignments:
         cid = a.chemist_id
@@ -2048,6 +2091,7 @@ def analyst_report():
                 'completed': 0,
                 'in_progress': 0,
                 'tests': [],
+                'status_counts': {},   # {SampleStatus.name: count}
             }
         entry = analyst_data[cid]
         entry['total'] += 1
@@ -2056,6 +2100,10 @@ def analyst_report():
         elif a.status != AssignmentStatus.REJECTED:
             entry['in_progress'] += 1
         entry['tests'].append(a)
+        # Track sample-level workflow status counts
+        s_status = a.sample.status
+        if s_status:
+            entry['status_counts'][s_status.name] = entry['status_counts'].get(s_status.name, 0) + 1
 
     # Sort analysts by completed tests descending
     sort_by = request.args.get('sort', 'completed')
@@ -2200,6 +2248,10 @@ def analyst_report():
         resub_selected=resub_selected,
         included_type_labels=included_type_labels,
         type_label_map=type_label_map,
+        # Workflow status filter
+        workflow_statuses=WORKFLOW_STATUSES,
+        status_selected=status_selected,
+        SampleStatus=SampleStatus,
     )
 
 
@@ -2234,11 +2286,25 @@ def analyst_report_download():
         resub_selected = [t for t in raw_resub_types if t in valid_type_keys]
         resub_filter = resub_selected if resub_selected else None
 
+    # Workflow status filter (mirrors analyst_report route logic)
+    valid_status_names = {name for name, _ in WORKFLOW_STATUSES}
+    raw_status_filter = request.args.getlist('status')
+    if not raw_status_filter or 'all' in raw_status_filter:
+        status_filter_names = []
+    else:
+        status_filter_names = [s for s in raw_status_filter if s in valid_status_names]
+
     type_label_map = dict(RESUBMISSION_TYPES)
     if resub_filter is None:
         included_type_labels = 'All Review Types'
     else:
         included_type_labels = ', '.join(type_label_map.get(t, t.title()) for t in resub_filter)
+
+    status_label_map = dict(WORKFLOW_STATUSES)
+    if not status_filter_names:
+        included_status_labels = 'All Statuses'
+    else:
+        included_status_labels = ', '.join(status_label_map.get(s, s) for s in status_filter_names)
 
     q = SampleAssignment.query.join(
         Sample, SampleAssignment.sample_id == Sample.id
@@ -2255,6 +2321,17 @@ def analyst_report_download():
         except KeyError:
             pass
 
+    # Apply workflow status filter
+    if status_filter_names:
+        resolved_statuses = []
+        for name in status_filter_names:
+            try:
+                resolved_statuses.append(SampleStatus[name])
+            except KeyError:
+                pass
+        if resolved_statuses:
+            q = q.filter(Sample.status.in_(resolved_statuses))
+
     assignments = q.order_by(User.last_name, SampleAssignment.assigned_date.desc()).all()
 
     assignment_ids = [a.id for a in assignments]
@@ -2266,10 +2343,12 @@ def analyst_report_download():
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([f'Included Resubmission Types: {included_type_labels}'])
+    writer.writerow([f'Workflow Status Filter: {included_status_labels}'])
     writer.writerow([])
     writer.writerow([
         'Analyst', 'Lab Number', 'Sample Name', 'Laboratory',
-        'Test Name', 'Status', 'Assigned Date', 'Date Completed',
+        'Test Name', 'Assignment Status', 'Sample Workflow Status',
+        'Assigned Date', 'Date Completed',
     ] + type_col_headers + ['Total Resubmissions (filtered)'])
     for a in assignments:
         bdown = type_breakdown.get(a.id, {})
@@ -2285,6 +2364,7 @@ def analyst_report_download():
             a.sample.sample_type.value if a.sample.sample_type else '',
             a.test_name,
             a.status.value if a.status else '',
+            a.sample.status.value if a.sample.status else '',
             a.assigned_date.strftime('%Y-%m-%d') if a.assigned_date else '',
             a.date_completed.strftime('%Y-%m-%d') if a.date_completed else '',
         ] + type_counts + [filtered_total])
