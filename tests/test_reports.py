@@ -667,13 +667,16 @@ def test_analyst_report_download_csv_has_transparency_header(app, client):
 
 
 def test_analyst_report_download_csv_all_types(app, client):
-    """Downloaded CSV with all types includes header and data rows."""
+    """Downloaded CSV with all types includes header and per-type columns."""
     _setup_analyst_report_data(app)
     _login(client, 'admin_ar')
     resp = client.get('/reports/analysts/download?resub_type=all')
     assert resp.status_code == 200
     assert b'All Review Types' in resp.data
-    assert b'Report Resubmissions' in resp.data
+    # New CSV format has per-type columns + a filtered total column
+    assert b'Preliminary Review' in resp.data
+    assert b'Technical Review' in resp.data
+    assert b'Total Resubmissions (filtered)' in resp.data
 
 
 def test_analyst_report_resubmission_count_summary_card(app, client):
