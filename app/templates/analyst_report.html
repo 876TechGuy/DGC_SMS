@@ -172,6 +172,17 @@
         </div>
     </div>
     <div class="col-6 col-md-2">
+        <div class="card text-center {% if avg_resubmissions_per_sample > 0 %}border-danger{% else %}border-light{% endif %}">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold {% if avg_resubmissions_per_sample > 0 %}text-danger{% else %}text-muted{% endif %}">
+                    {{ avg_resubmissions_per_sample }}
+                </div>
+                <small class="text-muted">Avg Resubmissions / Sample</small>
+                <div class="text-muted" style="font-size:0.7rem;">(Preliminary Review)</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
         <div class="card text-center border-danger">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-danger">{{ total_returned_deputy }}</div>
@@ -259,6 +270,14 @@
                         <small class="text-muted d-block" style="font-size:0.7rem;">(from Preliminary)</small>
                     </th>
                     <th class="text-center text-danger">
+                        Avg / Sample
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(Preliminary)</small>
+                    </th>
+                    <th class="text-center text-danger">
+                        Grade
+                        <small class="text-muted d-block" style="font-size:0.7rem;">(0 / 1 / 2+)</small>
+                    </th>
+                    <th class="text-center text-danger">
                         Returned by Deputy
                     </th>
                     <th class="text-center text-danger">
@@ -338,6 +357,20 @@
                         {% else %}—{% endif %}
                     </td>
                     <td class="text-center">
+                        <span class="{% if analyst.resub_avg > 0 %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+                            {{ analyst.resub_avg }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        {% if analyst.resub_grade == '0' %}
+                        <span class="badge bg-success">0</span>
+                        {% elif analyst.resub_grade == '1' %}
+                        <span class="badge bg-warning text-dark">1</span>
+                        {% else %}
+                        <span class="badge bg-danger">2+</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
                         {% set rd = analyst.resub_breakdown.get('deputy', 0) %}
                         {% if rd > 0 %}
                         <span class="badge bg-danger">{{ rd }}</span>
@@ -358,7 +391,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="10" class="text-center text-muted py-4">No analyst data found for this period.</td>
+                    <td colspan="12" class="text-center text-muted py-4">No analyst data found for this period.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -447,6 +480,25 @@
                             {{ selected_analyst.resub_breakdown.get('preliminary', 0) }}
                         </div>
                         <small class="text-muted" style="font-size:0.7rem;">Returned for Correction</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-sm-4 col-md-2">
+                <div class="card text-center h-100 {% if selected_analyst.resub_avg > 0 %}border-danger{% else %}border-light{% endif %}">
+                    <div class="card-body py-2 px-1">
+                        <div class="fs-5 fw-bold {% if selected_analyst.resub_avg > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ selected_analyst.resub_avg }}
+                        </div>
+                        <small class="text-muted" style="font-size:0.7rem;">Avg / Sample (Prelim)</small>
+                        <div class="mt-1">
+                            {% if selected_analyst.resub_grade == '0' %}
+                            <span class="badge bg-success">Grade: 0</span>
+                            {% elif selected_analyst.resub_grade == '1' %}
+                            <span class="badge bg-warning text-dark">Grade: 1</span>
+                            {% else %}
+                            <span class="badge bg-danger">Grade: 2+</span>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>

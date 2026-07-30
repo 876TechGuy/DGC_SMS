@@ -2093,9 +2093,11 @@ def analyst_report():
                 'tests': [],
                 'status_counts': {},       # {SampleStatus.name: count} — current sample workflow status
                 'assign_status_counts': {},  # {AssignmentStatus.name: count} — assignment-level status
+                'sample_ids': set(),       # unique sample IDs for this analyst
             }
         entry = analyst_data[cid]
         entry['total'] += 1
+        entry['sample_ids'].add(a.sample_id)
         if a.status in (AssignmentStatus.ACCEPTED, AssignmentStatus.COMPLETED):
             entry['completed'] += 1
         elif a.status != AssignmentStatus.REJECTED:
@@ -2159,6 +2161,17 @@ def analyst_report():
             data['resub_filtered'] = sum(
                 cnt for tk, cnt in breakdown.items() if tk in resub_filter
             )
+        # Per-analyst preliminary resubmission average and grade (0 / 1 / 2+)
+        prelim_cnt = breakdown.get('preliminary', 0)
+        unique_sample_cnt = len(data['sample_ids'])
+        data['unique_sample_count'] = unique_sample_cnt
+        data['resub_avg'] = round(prelim_cnt / unique_sample_cnt, 2) if unique_sample_cnt > 0 else 0.0
+        if prelim_cnt == 0:
+            data['resub_grade'] = '0'
+        elif prelim_cnt == 1:
+            data['resub_grade'] = '1'
+        else:
+            data['resub_grade'] = '2+'
 
     total_resubmissions = sum(d['resub_filtered'] for d in analyst_data.values())
 
@@ -2181,6 +2194,13 @@ def analyst_report():
     )
     total_completed_samples = sum(
         d['status_counts'].get('COMPLETED', 0) for d in analyst_data.values()
+    )
+
+    # Overall average preliminary resubmissions per unique sample across all filtered data
+    total_unique_samples = len({a.sample_id for a in assignments})
+    avg_resubmissions_per_sample = (
+        round(total_returned_correction / total_unique_samples, 2)
+        if total_unique_samples > 0 else 0.0
     )
 
     # Selected analyst detail view with pagination and sort
@@ -2258,6 +2278,8 @@ def analyst_report():
         total_returned_hod=total_returned_hod,
         total_certified=total_certified,
         total_completed_samples=total_completed_samples,
+        total_unique_samples=total_unique_samples,
+        avg_resubmissions_per_sample=avg_resubmissions_per_sample,
         Branch=Branch,
         sort_by=sort_by,
         sort_dir=sort_dir,
@@ -2369,6 +2391,16 @@ def analyst_report_download():
     assignment_ids = [a.id for a in assignments]
     type_breakdown = _resubmission_type_breakdown_for_assignments(assignment_ids)
 
+    # Compute summary metrics for the CSV header block
+    total_prelim_returns = sum(
+        type_breakdown.get(aid, {}).get('preliminary', 0) for aid in assignment_ids
+    )
+    total_unique_samples_csv = len({a.sample_id for a in assignments})
+    avg_resubs_csv = (
+        round(total_prelim_returns / total_unique_samples_csv, 2)
+        if total_unique_samples_csv > 0 else 0.0
+    )
+
     # Return-stage column headers — always included for full transparency
     # These match the RESUBMISSION_TYPES keys: preliminary, technical, deputy, hod, unspecified
     return_col_headers = [label for _, label in RESUBMISSION_TYPES]
@@ -2376,6 +2408,9 @@ def analyst_report_download():
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([f'Workflow Status Filter: {included_status_labels}'])
+    writer.writerow([f'Total Resubmissions (Returned for Correction from Preliminary Review): {total_prelim_returns}'])
+    writer.writerow([f'Unique Samples: {total_unique_samples_csv}'])
+    writer.writerow([f'Average Resubmissions per Sample: {avg_resubs_csv}'])
     writer.writerow([])
     writer.writerow([
         'Analyst', 'Lab Number', 'Sample Name', 'Laboratory',
