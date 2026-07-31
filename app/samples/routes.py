@@ -1958,8 +1958,42 @@ def preliminary_review(assignment_id):
 # ---------------------------------------------------------------------------
 # My Preliminary Reviews (all preliminary reviews completed by the current
 # user, across every analyst, including reports that were returned and any
-# subsequent preliminary reviews conducted after resubmission)
+# subsequent preliminary reviews conducted after resubmission).
+#
+# Visibility is permission-based:
+#   - VIEW_ALL_PRELIMINARY_REVIEWS  -> every reviewer's preliminary reviews
+#   - VIEW_TEAM_PRELIMINARY_REVIEWS -> reviews performed by reviewers who
+#                                       share at least one branch/section
+#                                       with the current user (their "team")
+#   - otherwise (VIEW_OWN_PRELIMINARY_REVIEWS, the default)
+#                                   -> only the current user's own reviews
 # ---------------------------------------------------------------------------
+
+def _preliminary_review_scope(user):
+    """Resolve the reviewer-visibility scope for the given user.
+
+    Returns a tuple ``(scope, reviewer_ids)`` where ``scope`` is one of
+    ``'all'``, ``'team'`` or ``'own'`` and ``reviewer_ids`` is ``None`` when
+    scope is ``'all'`` (no reviewer restriction applied) or a list of user
+    ids the caller is permitted to see otherwise.
+    """
+    if user.has_permission(Permission.VIEW_ALL_PRELIMINARY_REVIEWS):
+        return 'all', None
+
+    if user.has_permission(Permission.VIEW_TEAM_PRELIMINARY_REVIEWS):
+        if user.branches:
+            team_ids = {
+                row[0] for row in db.session.query(user_branches.c.user_id)
+                .filter(user_branches.c.branch.in_(user.branches))
+                .distinct().all()
+            }
+        else:
+            team_ids = set()
+        team_ids.add(user.id)
+        return 'team', sorted(team_ids)
+
+    return 'own', [user.id]
+
 
 @samples_bp.route('/preliminary-reviews/mine')
 @login_required
@@ -1969,52 +2003,98 @@ def my_preliminary_reviews():
             Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN
         )
         or current_user.has_permission(Permission.PRELIMINARY_REVIEW)
+        or current_user.has_permission(Permission.VIEW_TEAM_PRELIMINARY_REVIEWS)
+        or current_user.has_permission(Permission.VIEW_ALL_PRELIMINARY_REVIEWS)
     )
     if not allowed:
         flash('You do not have permission to view preliminary review history.', 'danger')
         return redirect(url_for('main.dashboard'))
 
+    scope, scope_reviewer_ids = _preliminary_review_scope(current_user)
+
     analyst_id = request.args.get('analyst_id', type=int, default=0)
     action_filter = request.args.get('action', '').strip()
     search = request.args.get('search', '').strip()
+    assigned_to = request.args.get('assigned_to', type=int, default=0)
+    branch_filter = request.args.get('branch', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
     page = request.args.get('page', 1, type=int)
+
+    # --- Server-side enforcement -------------------------------------------------
+    # Never trust the "assigned_to" (reviewer) query param at face value: a
+    # user restricted to 'own' or 'team' scope must not be able to view another
+    # reviewer's history simply by editing the URL/query string.
+    if scope_reviewer_ids is not None and assigned_to and assigned_to not in scope_reviewer_ids:
+        flash('You do not have permission to view that reviewer\'s reviews.', 'danger')
+        assigned_to = 0
+    if scope == 'own':
+        # 'own' scope users have no reviewer selector at all — always self.
+        assigned_to = current_user.id
+
+    valid_branch_values = {b.name for b in Branch}
+    if branch_filter and branch_filter not in valid_branch_values:
+        branch_filter = ''
+
+    def _parse_date(value):
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return None
+
+    date_from_value = _parse_date(date_from)
+    date_to_value = _parse_date(date_to)
 
     base_q = ReviewHistory.query.join(
         SampleAssignment, ReviewHistory.assignment_id == SampleAssignment.id
     ).join(
         Sample, ReviewHistory.sample_id == Sample.id
     ).filter(
-        ReviewHistory.reviewer_id == current_user.id,
         ReviewHistory.review_type == 'preliminary',
     )
+    if scope_reviewer_ids is not None:
+        base_q = base_q.filter(ReviewHistory.reviewer_id.in_(scope_reviewer_ids))
 
-    # List of analysts (chemists) whose reports this user has preliminary
-    # reviewed — used to populate the analyst filter and per-analyst summary.
-    analyst_ids = [
-        row[0] for row in db.session.query(SampleAssignment.chemist_id)
-        .join(ReviewHistory, ReviewHistory.assignment_id == SampleAssignment.id)
-        .filter(
-            ReviewHistory.reviewer_id == current_user.id,
-            ReviewHistory.review_type == 'preliminary',
-        ).distinct().all()
-    ]
+    # List of analysts (chemists) whose reports fall within the current
+    # scope — used to populate the analyst filter and per-analyst summary.
+    analyst_ids_q = db.session.query(SampleAssignment.chemist_id).join(
+        ReviewHistory, ReviewHistory.assignment_id == SampleAssignment.id
+    ).filter(ReviewHistory.review_type == 'preliminary')
+    if scope_reviewer_ids is not None:
+        analyst_ids_q = analyst_ids_q.filter(ReviewHistory.reviewer_id.in_(scope_reviewer_ids))
+    analyst_ids = [row[0] for row in analyst_ids_q.distinct().all()]
     analysts = User.query.filter(User.id.in_(analyst_ids)).order_by(
         User.first_name, User.last_name
     ).all() if analyst_ids else []
 
-    # Per-analyst summary counts (independent of the applied filters below)
+    # List of reviewers within scope — used to populate the "Assigned To"
+    # filter for users with elevated (team/all) visibility.
+    reviewers = []
+    if scope in ('all', 'team'):
+        reviewer_ids_q = db.session.query(ReviewHistory.reviewer_id).filter(
+            ReviewHistory.review_type == 'preliminary'
+        )
+        if scope_reviewer_ids is not None:
+            reviewer_ids_q = reviewer_ids_q.filter(ReviewHistory.reviewer_id.in_(scope_reviewer_ids))
+        reviewer_ids = [row[0] for row in reviewer_ids_q.distinct().all()]
+        reviewers = User.query.filter(User.id.in_(reviewer_ids)).order_by(
+            User.first_name, User.last_name
+        ).all() if reviewer_ids else []
+
+    # Per-analyst summary counts (independent of the applied filters below,
+    # but respecting the resolved visibility scope)
     analyst_summary = []
     if analyst_ids:
-        counts_rows = db.session.query(
+        counts_q = db.session.query(
             SampleAssignment.chemist_id,
             ReviewHistory.action,
             db.func.count(ReviewHistory.id),
         ).join(
             SampleAssignment, ReviewHistory.assignment_id == SampleAssignment.id
-        ).filter(
-            ReviewHistory.reviewer_id == current_user.id,
-            ReviewHistory.review_type == 'preliminary',
-        ).group_by(SampleAssignment.chemist_id, ReviewHistory.action).all()
+        ).filter(ReviewHistory.review_type == 'preliminary')
+        if scope_reviewer_ids is not None:
+            counts_q = counts_q.filter(ReviewHistory.reviewer_id.in_(scope_reviewer_ids))
+        counts_rows = counts_q.group_by(SampleAssignment.chemist_id, ReviewHistory.action).all()
 
         counts_by_analyst = {}
         for chemist_id, action_value, count in counts_rows:
@@ -2036,17 +2116,54 @@ def my_preliminary_reviews():
     q = base_q
     if analyst_id:
         q = q.filter(SampleAssignment.chemist_id == analyst_id)
+    if assigned_to:
+        q = q.filter(ReviewHistory.reviewer_id == assigned_to)
     if action_filter in ('approved', 'returned'):
         q = q.filter(ReviewHistory.action == action_filter)
+    if branch_filter:
+        q = q.filter(Sample.sample_type == Branch[branch_filter])
+    if date_from_value:
+        q = q.filter(db.func.date(ReviewHistory.reviewed_at) >= date_from_value)
+    if date_to_value:
+        q = q.filter(db.func.date(ReviewHistory.reviewed_at) <= date_to_value)
     if search:
         like = f'%{search}%'
         q = q.filter(db.or_(
             Sample.lab_number.ilike(like),
             SampleAssignment.test_name.ilike(like),
+            SampleAssignment.test_reference.ilike(like),
         ))
 
     q = q.order_by(ReviewHistory.reviewed_at.desc())
     pagination = q.paginate(page=page, per_page=25, error_out=False)
+
+    # --- Audit logging -----------------------------------------------------
+    # Record access whenever a user with elevated (team/all) visibility is
+    # viewing reviews that are not exclusively their own.
+    if scope in ('all', 'team') and (assigned_to == 0 or assigned_to != current_user.id):
+        details = {
+            'scope': scope,
+            'assigned_to': assigned_to or 'all',
+            'analyst_id': analyst_id or None,
+            'action': action_filter or None,
+            'branch': branch_filter or None,
+            'date_from': date_from or None,
+            'date_to': date_to or None,
+            'search': search or None,
+        }
+        db.session.add(AuditLog(
+            action='VIEW_OTHERS_PRELIMINARY_REVIEWS',
+            entity_type='ReviewHistory',
+            entity_id=assigned_to or None,
+            entity_label=(
+                'All reviewers' if not assigned_to
+                else (db.session.get(User, assigned_to).full_name if db.session.get(User, assigned_to) else str(assigned_to))
+            ),
+            details=json.dumps(details),
+            performed_by=current_user.id,
+            performed_at=jamaica_now(),
+        ))
+        db.session.commit()
 
     return render_template(
         'samples/my_preliminary_reviews.html',
@@ -2057,6 +2174,14 @@ def my_preliminary_reviews():
         analyst_id=analyst_id,
         action_filter=action_filter,
         search=search,
+        scope=scope,
+        reviewers=reviewers,
+        assigned_to=assigned_to,
+        branch_filter=branch_filter,
+        date_from=date_from,
+        date_to=date_to,
+        branches=list(Branch),
+        can_manage=current_user.has_permission(Permission.MANAGE_PRELIMINARY_REVIEWS),
     )
 
 

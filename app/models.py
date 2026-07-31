@@ -114,6 +114,11 @@ class Permission(enum.Enum):
     SAMPLE_COMMENT_EDIT     = 'Edit Sample Comments'
     SAMPLE_COMMENT_DELETE   = 'Delete Sample Comments'
     ADD_SUPPORTING_DOCUMENT = 'Add Supporting Documents'
+    # My Preliminary Reviews — permission-based visibility scopes
+    VIEW_OWN_PRELIMINARY_REVIEWS  = 'View Own Preliminary Reviews'
+    VIEW_TEAM_PRELIMINARY_REVIEWS = 'View Team Preliminary Reviews'
+    VIEW_ALL_PRELIMINARY_REVIEWS  = 'View All Preliminary Reviews'
+    MANAGE_PRELIMINARY_REVIEWS    = 'Manage Preliminary Reviews'
 
 
 # ---------------------------------------------------------------------------
