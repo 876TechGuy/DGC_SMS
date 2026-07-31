@@ -319,6 +319,86 @@ def test_preliminary_review_return(app, client):
         assert assignment.status == AssignmentStatus.REPORT_SUBMITTED
 
 
+def test_my_preliminary_reviews_page(app, client):
+    """Officer can view all preliminary reviews they've completed for every
+    analyst, including a returned review and the subsequent re-review after
+    resubmission."""
+    officer_id, sc_id, chemist_id, deputy_id, hod_id = _setup_users(app)
+    _login(client, 'officer')
+    _register_sample(client)
+    client.get('/auth/logout')
+
+    _login(client, 'senior')
+    with app.app_context():
+        sample = Sample.query.first()
+    client.post(f'/samples/{sample.id}/assign', data={
+        'chemist_ids': [chemist_id],
+        'test_name': 'Analysis',
+    })
+    client.get('/auth/logout')
+
+    _login(client, 'chemist')
+    with app.app_context():
+        assignment = SampleAssignment.query.first()
+    client.post(f'/samples/assignment/{assignment.id}/report', data={
+        'report_text': 'Incomplete.',
+        'report_file': _report_file(),
+    }, content_type='multipart/form-data')
+    client.get('/auth/logout')
+
+    # Officer returns for correction (first preliminary review)
+    _login(client, 'officer')
+    with app.app_context():
+        assignment = SampleAssignment.query.first()
+    client.post(f'/samples/assignment/{assignment.id}/preliminary-review', data={
+        'action': 'returned',
+        'review_comments': 'Missing sections.',
+    }, follow_redirects=True)
+    client.get('/auth/logout')
+
+    # Chemist resubmits
+    _login(client, 'chemist')
+    with app.app_context():
+        assignment = SampleAssignment.query.first()
+    client.post(f'/samples/assignment/{assignment.id}/report', data={
+        'report_text': 'Complete findings with all sections.',
+        'report_file': _report_file(),
+    }, content_type='multipart/form-data', follow_redirects=True)
+    client.get('/auth/logout')
+
+    # Officer approves on the second pass (preliminary review after resubmission)
+    _login(client, 'officer')
+    with app.app_context():
+        assignment = SampleAssignment.query.first()
+    client.post(f'/samples/assignment/{assignment.id}/preliminary-review', data={
+        'action': 'approved',
+        'review_comments': 'Now complete.',
+    }, follow_redirects=True)
+
+    resp = client.get('/samples/preliminary-reviews/mine')
+    assert resp.status_code == 200
+    assert b'My Preliminary Reviews' in resp.data
+    # Both the returned review and the subsequent approved review show up
+    assert b'Returned' in resp.data
+    assert b'Approved' in resp.data
+    assert b'Resubmission' in resp.data
+    assert b'Chemist User' in resp.data or b'chemist' in resp.data.lower()
+
+    # Filtering by analyst still returns the same reviews
+    with app.app_context():
+        chemist = db.session.get(User, chemist_id)
+    resp = client.get(f'/samples/preliminary-reviews/mine?analyst_id={chemist.id}')
+    assert resp.status_code == 200
+    assert b'Returned' in resp.data
+    assert b'Approved' in resp.data
+
+    # A user without preliminary-review privileges cannot access the page
+    client.get('/auth/logout')
+    _login(client, 'chemist')
+    resp = client.get('/samples/preliminary-reviews/mine', follow_redirects=True)
+    assert b'do not have permission' in resp.data
+
+
 def test_preliminary_review_checklist(app, client):
     """Test that preliminary review checklist items are saved."""
     officer_id, sc_id, chemist_id, deputy_id, hod_id = _setup_users(app)

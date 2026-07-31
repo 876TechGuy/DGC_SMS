@@ -556,6 +556,14 @@
                         <span id="sidebar-msg-badge" class="ms-auto badge bg-primary d-none" style="font-size:.6rem;"></span>
                     </a>
                 </li>
+                {% if current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN) or current_user.has_permission(Permission.PRELIMINARY_REVIEW) %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'samples.my_preliminary_reviews' %}active{% endif %}"
+                       href="{{ url_for('samples.my_preliminary_reviews') }}">
+                        <i class="bi bi-clipboard-check"></i> My Preliminary Reviews
+                    </a>
+                </li>
+                {% endif %}
                 {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) or current_user.has_permission(Permission.VIEW_ALL_BRANCHES_REPORT) or current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT) %}
                 <li><div class="sidebar-section-label">Reports</div></li>
                 {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) or current_user.has_permission(Permission.VIEW_ALL_BRANCHES_REPORT) %}

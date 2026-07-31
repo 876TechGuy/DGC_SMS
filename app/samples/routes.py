@@ -1956,6 +1956,111 @@ def preliminary_review(assignment_id):
 
 
 # ---------------------------------------------------------------------------
+# My Preliminary Reviews (all preliminary reviews completed by the current
+# user, across every analyst, including reports that were returned and any
+# subsequent preliminary reviews conducted after resubmission)
+# ---------------------------------------------------------------------------
+
+@samples_bp.route('/preliminary-reviews/mine')
+@login_required
+def my_preliminary_reviews():
+    allowed = (
+        current_user.has_any_role(
+            Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN
+        )
+        or current_user.has_permission(Permission.PRELIMINARY_REVIEW)
+    )
+    if not allowed:
+        flash('You do not have permission to view preliminary review history.', 'danger')
+        return redirect(url_for('main.dashboard'))
+
+    analyst_id = request.args.get('analyst_id', type=int, default=0)
+    action_filter = request.args.get('action', '').strip()
+    search = request.args.get('search', '').strip()
+    page = request.args.get('page', 1, type=int)
+
+    base_q = ReviewHistory.query.join(
+        SampleAssignment, ReviewHistory.assignment_id == SampleAssignment.id
+    ).join(
+        Sample, ReviewHistory.sample_id == Sample.id
+    ).filter(
+        ReviewHistory.reviewer_id == current_user.id,
+        ReviewHistory.review_type == 'preliminary',
+    )
+
+    # List of analysts (chemists) whose reports this user has preliminary
+    # reviewed — used to populate the analyst filter and per-analyst summary.
+    analyst_ids = [
+        row[0] for row in db.session.query(SampleAssignment.chemist_id)
+        .join(ReviewHistory, ReviewHistory.assignment_id == SampleAssignment.id)
+        .filter(
+            ReviewHistory.reviewer_id == current_user.id,
+            ReviewHistory.review_type == 'preliminary',
+        ).distinct().all()
+    ]
+    analysts = User.query.filter(User.id.in_(analyst_ids)).order_by(
+        User.first_name, User.last_name
+    ).all() if analyst_ids else []
+
+    # Per-analyst summary counts (independent of the applied filters below)
+    analyst_summary = []
+    if analyst_ids:
+        counts_rows = db.session.query(
+            SampleAssignment.chemist_id,
+            ReviewHistory.action,
+            db.func.count(ReviewHistory.id),
+        ).join(
+            SampleAssignment, ReviewHistory.assignment_id == SampleAssignment.id
+        ).filter(
+            ReviewHistory.reviewer_id == current_user.id,
+            ReviewHistory.review_type == 'preliminary',
+        ).group_by(SampleAssignment.chemist_id, ReviewHistory.action).all()
+
+        counts_by_analyst = {}
+        for chemist_id, action_value, count in counts_rows:
+            entry = counts_by_analyst.setdefault(
+                chemist_id, {'approved': 0, 'returned': 0, 'total': 0}
+            )
+            entry[action_value] = entry.get(action_value, 0) + count
+            entry['total'] += count
+
+        for analyst in analysts:
+            entry = counts_by_analyst.get(analyst.id, {'approved': 0, 'returned': 0, 'total': 0})
+            analyst_summary.append({
+                'analyst': analyst,
+                'approved': entry.get('approved', 0),
+                'returned': entry.get('returned', 0),
+                'total': entry.get('total', 0),
+            })
+
+    q = base_q
+    if analyst_id:
+        q = q.filter(SampleAssignment.chemist_id == analyst_id)
+    if action_filter in ('approved', 'returned'):
+        q = q.filter(ReviewHistory.action == action_filter)
+    if search:
+        like = f'%{search}%'
+        q = q.filter(db.or_(
+            Sample.lab_number.ilike(like),
+            SampleAssignment.test_name.ilike(like),
+        ))
+
+    q = q.order_by(ReviewHistory.reviewed_at.desc())
+    pagination = q.paginate(page=page, per_page=25, error_out=False)
+
+    return render_template(
+        'samples/my_preliminary_reviews.html',
+        reviews=pagination.items,
+        pagination=pagination,
+        analysts=analysts,
+        analyst_summary=analyst_summary,
+        analyst_id=analyst_id,
+        action_filter=action_filter,
+        search=search,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Senior Chemist Review (formerly Technical Review)
 # ---------------------------------------------------------------------------
 
