@@ -1369,7 +1369,7 @@ class AuditLog(db.Model):
         
         This is a helper to make it easier to log actions across the application.
         """
-        from flask import request
+        from flask import request, has_request_context
         from flask_login import current_user
         
         # Use current user if not specified
@@ -1380,17 +1380,18 @@ class AuditLog(db.Model):
                 performed_by = 1  # System
         
         # Capture request metadata if available
-        if ip_address is None and request:
-            try:
-                ip_address = request.remote_addr
-            except RuntimeError:
-                pass  # No request context
-        
-        if user_agent is None and request:
-            try:
-                user_agent = request.headers.get('User-Agent', '')[:500]
-            except RuntimeError:
-                pass  # No request context
+        if has_request_context():
+            if ip_address is None:
+                try:
+                    ip_address = request.remote_addr
+                except (RuntimeError, AttributeError):
+                    pass  # No request context or missing attribute
+            
+            if user_agent is None:
+                try:
+                    user_agent = request.headers.get('User-Agent', '')[:500]
+                except (RuntimeError, AttributeError):
+                    pass  # No request context or missing attribute
         
         entry = AuditLog(
             action=action,
