@@ -604,11 +604,14 @@ _ROLE_INHERENT_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.INVOICE_GENERATE,
         Permission.MANAGE_DROPDOWNS,
         Permission.ADD_SUPPORTING_DOCUMENT,
+        Permission.VIEW_ALL_PRELIMINARY_REVIEWS,
+        Permission.MANAGE_PRELIMINARY_REVIEWS,
     },
     Role.DEPUTY: {
         Permission.DEPUTY_REVIEW,
         Permission.COA_DECERTIFY_REISSUE,
         Permission.SUBMIT_REPORT,
+        Permission.VIEW_ALL_PRELIMINARY_REVIEWS,
     },
     Role.SENIOR_CHEMIST: {
         Permission.REGISTER_SAMPLE,
@@ -618,6 +621,7 @@ _ROLE_INHERENT_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PRELIMINARY_REVIEW,
         Permission.TECHNICAL_REVIEW,
         Permission.MULTI_ANALYST_ASSIGN,
+        Permission.VIEW_TEAM_PRELIMINARY_REVIEWS,
     },
     Role.OFFICER: {
         Permission.REGISTER_SAMPLE,

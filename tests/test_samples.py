@@ -5,6 +5,7 @@ from app import db
 from app.models import (
     Sample, SampleAssignment, User, Role, Branch,
     SampleStatus, AssignmentStatus, Setting, SampleHistory, ReviewHistory,
+    Permission, AuditLog, user_permissions,
 )
 from tests.conftest import _create_user, _login
 
@@ -397,6 +398,130 @@ def test_my_preliminary_reviews_page(app, client):
     _login(client, 'chemist')
     resp = client.get('/samples/preliminary-reviews/mine', follow_redirects=True)
     assert b'do not have permission' in resp.data
+
+
+def test_my_preliminary_reviews_permission_scopes(app, client):
+    """Permission-based visibility: 'own' scope users cannot see another
+    reviewer's history (even via URL/param manipulation), 'team' scope users
+    only see reviewers who share a branch, and 'all' scope users see every
+    reviewer plus the "Assigned To" column, with an audit log entry written
+    when viewing others' reviews."""
+    officer_id, sc_id, chemist_id, deputy_id, hod_id = _setup_users(app)
+
+    with app.app_context():
+        # A second reviewer in a different branch (no shared branch with the
+        # senior chemist / officer) to prove 'team' scope excludes them.
+        other_officer = _create_user(Role.OFFICER, Branch.FOOD_MILK, username='officer2')
+        other_officer_id = other_officer.id
+
+        sample1 = Sample(
+            lab_number='TOX-100', sample_name='Sample One',
+            sample_type=Branch.TOXICOLOGY, date_received=date.today(),
+            uploaded_by=officer_id,
+        )
+        sample2 = Sample(
+            lab_number='MLK-200', sample_name='Sample Two',
+            sample_type=Branch.FOOD_MILK, date_received=date.today(),
+            uploaded_by=other_officer_id,
+        )
+        db.session.add_all([sample1, sample2])
+        db.session.flush()
+
+        assignment1 = SampleAssignment(
+            sample_id=sample1.id, chemist_id=chemist_id,
+            assigned_by=officer_id, test_name='Test One',
+        )
+        assignment2 = SampleAssignment(
+            sample_id=sample2.id, chemist_id=chemist_id,
+            assigned_by=other_officer_id, test_name='Test Two',
+        )
+        db.session.add_all([assignment1, assignment2])
+        db.session.flush()
+
+        # Officer (senior-chemist's teammate via TOXICOLOGY branch) reviews sample1.
+        db.session.add(ReviewHistory(
+            sample_id=sample1.id, assignment_id=assignment1.id,
+            review_type='preliminary', review_number=1, action='approved',
+            reviewer_id=sc_id, comments='SC review',
+        ))
+        # A different-branch officer reviews sample2 — outside the SC's team.
+        db.session.add(ReviewHistory(
+            sample_id=sample2.id, assignment_id=assignment2.id,
+            review_type='preliminary', review_number=1, action='approved',
+            reviewer_id=other_officer_id, comments='Officer2 review',
+        ))
+        db.session.commit()
+
+        sc_user = db.session.get(User, sc_id)
+        officer2_user = db.session.get(User, other_officer_id)
+        admin_user = _create_user(Role.ADMIN, username='admin_user')
+        admin_id = admin_user.id
+
+        assert AuditLog.query.count() == 0
+
+    # --- 'own' scope: officer2 sees only their own review, and cannot use
+    # the assigned_to param to view the senior chemist's review.
+    _login(client, 'officer2')
+    resp = client.get('/samples/preliminary-reviews/mine')
+    assert resp.status_code == 200
+    assert b'Officer2 review' in resp.data
+    assert b'SC review' not in resp.data
+
+    resp = client.get(f'/samples/preliminary-reviews/mine?assigned_to={sc_id}')
+    assert resp.status_code == 200
+    assert b'SC review' not in resp.data
+    assert b'do not have permission to view that reviewer' in resp.data
+    client.get('/auth/logout')
+
+    # --- 'team' scope: grant VIEW_TEAM_PRELIMINARY_REVIEWS to the senior
+    # chemist. They should see their own review but not officer2's (different
+    # branch), and the "Assigned To" filter/column becomes available.
+    with app.app_context():
+        db.session.execute(user_permissions.insert().values(
+            user_id=sc_id, permission=Permission.VIEW_TEAM_PRELIMINARY_REVIEWS,
+        ))
+        db.session.commit()
+
+    _login(client, 'senior')
+    resp = client.get('/samples/preliminary-reviews/mine')
+    assert resp.status_code == 200
+    assert b'SC review' in resp.data
+    assert b'Officer2 review' not in resp.data
+    assert b'Assigned To' in resp.data
+
+    resp = client.get(f'/samples/preliminary-reviews/mine?assigned_to={other_officer_id}')
+    assert resp.status_code == 200
+    assert b'Officer2 review' not in resp.data
+    assert b'do not have permission to view that reviewer' in resp.data
+    client.get('/auth/logout')
+
+    # --- 'all' scope: an admin should see every reviewer's reviews, along
+    # with the "Assigned To" column, and viewing others triggers an audit
+    # log entry.
+    with app.app_context():
+        audit_count_before = AuditLog.query.count()
+
+    _login(client, 'admin_user')
+    resp = client.get('/samples/preliminary-reviews/mine')
+    assert resp.status_code == 200
+    assert b'SC review' in resp.data
+    assert b'Officer2 review' in resp.data
+    assert b'Assigned To' in resp.data
+
+    with app.app_context():
+        assert AuditLog.query.count() > audit_count_before
+        entry = AuditLog.query.filter_by(
+            action='VIEW_OTHERS_PRELIMINARY_REVIEWS'
+        ).order_by(AuditLog.id.desc()).first()
+        assert entry is not None
+        assert entry.performed_by == admin_id
+
+    # Filtering to a specific reviewer within 'all' scope works and further
+    # narrows the audit trail's entity reference.
+    resp = client.get(f'/samples/preliminary-reviews/mine?assigned_to={other_officer_id}')
+    assert resp.status_code == 200
+    assert b'Officer2 review' in resp.data
+    assert b'SC review' not in resp.data
 
 
 def test_preliminary_review_checklist(app, client):
