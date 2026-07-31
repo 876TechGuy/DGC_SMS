@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <h1>Specification Review</h1>
+            <p class="text-muted">Verify quotation compliance with specifications and requirements</p>
+
+            <!-- Quotation Info -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Quotation Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>RFQ Number:</strong>
+                            <p>{{ rfq.rfq_number }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>RFQ Title:</strong>
+                            <p>{{ rfq.title }}</p>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Supplier Name:</strong>
+                            <p>{{ quotation.supplier_name }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Supplier Contact:</strong>
+                            <p>{{ quotation.supplier_contact or '—' }}</p>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Supplier Email:</strong>
+                            <p>{{ quotation.supplier_email or '—' }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Uploaded On:</strong>
+                            <p>{{ quotation.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                        </div>
+                    </div>
+                    {% if quotation.file_path %}
+                    <div class="mt-3">
+                        <strong>Quotation Document:</strong>
+                        <p>
+                            {{ quotation.file_original_name }}
+                            {% if quotation.file_path.endswith('.pdf') %}
+                            <a href="{{ quotation.file_path }}" target="_blank" class="btn btn-sm btn-outline-info">
+                                <i class="fas fa-file-pdf"></i> View PDF
+                            </a>
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Review Form -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Your Review</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <strong>Review Instructions:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Verify that the quotation meets all specified requirements</li>
+                            <li>Check for compliance with evaluation criteria</li>
+                            <li>Evaluate technical specifications and terms</li>
+                            <li>If any issues found, return the quotation for clarification rather than rejecting outright</li>
+                        </ul>
+                    </div>
+
+                    <form method="POST" novalidate>
+                        {{ form.hidden_tag() }}
+
+                        <div class="form-group">
+                            {{ form.action.label }}
+                            {% if form.action.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.action.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            <div class="mt-2">
+                                {% for subfield in form.action %}
+                                <div class="custom-control custom-radio mb-2">
+                                    {{ subfield(class="custom-control-input") }}
+                                    <label class="custom-control-label" for="{{ subfield.id }}">
+                                        {{ subfield.label.text }}
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            {{ form.comments.label }}
+                            {% if form.comments.errors %}
+                                {{ form.comments(class="form-control is-invalid", rows="5") }}
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.comments.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                {{ form.comments(class="form-control", rows="5", placeholder="Enter your review comments...") }}
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.comments.description }}</small>
+                        </div>
+
+                        <div class="form-group">
+                            {{ form.submit(class="btn btn-primary") }}
+                            <a href="{{ url_for('rfq.view_rfq_detail', rfq_id=rfq.id) }}" class="btn btn-secondary">
+                                Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="mt-3">
+                <a href="{{ url_for('rfq.view_rfq_detail', rfq_id=rfq.id) }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to RFQ
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

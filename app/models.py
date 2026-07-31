@@ -114,6 +114,12 @@ class Permission(enum.Enum):
     SAMPLE_COMMENT_EDIT     = 'Edit Sample Comments'
     SAMPLE_COMMENT_DELETE   = 'Delete Sample Comments'
     ADD_SUPPORTING_DOCUMENT = 'Add Supporting Documents'
+    # RFQ / Procurement Permissions
+    RFQ_CREATE              = 'Create RFQ'
+    RFQ_SPECIFICATION_REVIEW = 'RFQ Specification Review'
+    RFQ_BRANCH_APPROVAL     = 'RFQ Branch Head Approval'
+    QUOTATION_EVALUATE      = 'Evaluate Quotations'
+    SUPPLIER_MANAGE         = 'Manage Suppliers'
 
 
 # ---------------------------------------------------------------------------
@@ -1354,6 +1360,58 @@ class AuditLog(db.Model):
 
     performer = db.relationship('User', foreign_keys=[performed_by])
 
+    @staticmethod
+    def add_entry(action, entity_type, entity_id, entity_label=None, performed_by=None,
+                  human_description=None, previous_value=None, new_value=None,
+                  previous_stage=None, new_stage=None, comments=None,
+                  details=None, ip_address=None, user_agent=None):
+        """Create an audit log entry with the given parameters.
+        
+        This is a helper to make it easier to log actions across the application.
+        """
+        from flask import request, has_request_context
+        from flask_login import current_user
+        
+        # Use current user if not specified
+        if performed_by is None:
+            if current_user.is_authenticated:
+                performed_by = current_user.id
+            else:
+                performed_by = 1  # System
+        
+        # Capture request metadata if available
+        if has_request_context():
+            if ip_address is None:
+                try:
+                    ip_address = request.remote_addr
+                except (RuntimeError, AttributeError):
+                    pass  # No request context or missing attribute
+            
+            if user_agent is None:
+                try:
+                    user_agent = request.headers.get('User-Agent', '')[:500]
+                except (RuntimeError, AttributeError):
+                    pass  # No request context or missing attribute
+        
+        entry = AuditLog(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_label=entity_label,
+            performed_by=performed_by,
+            human_description=human_description,
+            previous_value=previous_value,
+            new_value=new_value,
+            previous_stage=previous_stage,
+            new_stage=new_stage,
+            comments=comments,
+            details=details,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        db.session.add(entry)
+        return entry
+
     def __repr__(self):
         return f'<AuditLog {self.action} {self.entity_type}#{self.entity_id}>'
 
@@ -1632,3 +1690,203 @@ class DropdownConfig(db.Model):
 
     def __repr__(self):
         return f'<DropdownConfig {self.category}:{self.value}>'
+
+
+# ---------------------------------------------------------------------------
+# RFQ (Request For Quotation) - Procurement Workflow
+# ---------------------------------------------------------------------------
+
+class RFQStatus(enum.Enum):
+    """Status tracking for RFQ workflow."""
+    DRAFT = 'Draft'
+    AWAITING_QUOTES = 'Awaiting Quotes'
+    AWAITING_SPEC_REVIEW = 'Awaiting Specification Review'
+    AWAITING_BRANCH_APPROVAL = 'Awaiting Branch Head Approval'
+    APPROVED = 'Approved'
+    REJECTED = 'Rejected'
+    CANCELLED = 'Cancelled'
+
+
+class QuotationStatus(enum.Enum):
+    """Status of a quotation at each approval stage."""
+    PENDING = 'Pending'
+    SPEC_REVIEW_APPROVED = 'Specification Review Approved'
+    SPEC_REVIEW_REJECTED = 'Specification Review Rejected'
+    BRANCH_APPROVED = 'Branch Approval Approved'
+    BRANCH_REJECTED = 'Branch Approval Rejected'
+    SELECTED = 'Selected as Winner'
+    REJECTED_FINAL = 'Rejected - Final'
+
+
+class ApprovalAction(enum.Enum):
+    """Action taken during approval."""
+    APPROVED = 'Approved'
+    REJECTED = 'Rejected'
+    RETURNED = 'Returned for Clarification'
+
+
+class RFQ(db.Model):
+    """Request For Quotation - Main RFQ record.
+    
+    Tracks the complete lifecycle of a procurement request from creation
+    through specification review to branch head approval.
+    """
+    __tablename__ = 'rfqs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    rfq_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    branch = db.Column(db.Enum(Branch), nullable=False)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=jamaica_now)
+    updated_at = db.Column(db.DateTime, default=jamaica_now, onupdate=jamaica_now)
+    
+    # Workflow status
+    status = db.Column(db.Enum(RFQStatus), default=RFQStatus.DRAFT, nullable=False)
+    
+    # Requestor / Creator
+    created_by = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=False
+    )
+    
+    # Designated Reviewers
+    specification_reviewer_id = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=True
+    )
+    branch_head_approval_by_id = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=True
+    )
+    
+    # Relationships
+    creator = db.relationship('User', foreign_keys=[created_by], backref='created_rfqs')
+    specification_reviewer = db.relationship(
+        'User', foreign_keys=[specification_reviewer_id], 
+        backref='rfqs_for_spec_review'
+    )
+    branch_head_approver = db.relationship(
+        'User', foreign_keys=[branch_head_approval_by_id],
+        backref='rfqs_for_branch_approval'
+    )
+    quotations = db.relationship(
+        'Quotation', backref='rfq', lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+    approval_history = db.relationship(
+        'RFQApprovalHistory', backref='rfq', lazy='dynamic',
+        cascade='all, delete-orphan',
+        order_by='RFQApprovalHistory.approved_at.desc()'
+    )
+
+    def __repr__(self):
+        return f'<RFQ {self.rfq_number}>'
+
+
+class Quotation(db.Model):
+    """Quotation submitted by a supplier against an RFQ.
+    
+    Each quotation undergoes two-stage approval:
+    1. Specification Review (verify compliance with specs)
+    2. Branch Head Approval (final authorization)
+    """
+    __tablename__ = 'quotations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    rfq_id = db.Column(
+        db.Integer, db.ForeignKey('rfqs.id'), nullable=False, index=True
+    )
+    
+    # Supplier details
+    supplier_name = db.Column(db.String(255), nullable=False)
+    supplier_contact = db.Column(db.String(255), nullable=True)
+    supplier_email = db.Column(db.String(255), nullable=True)
+    
+    # Quote file/document
+    file_path = db.Column(db.String(500), nullable=True)
+    file_original_name = db.Column(db.String(255), nullable=True)
+    uploaded_by = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=False
+    )
+    uploaded_at = db.Column(db.DateTime, default=jamaica_now)
+    
+    # Approval workflow status
+    specification_review_status = db.Column(
+        db.Enum(QuotationStatus), 
+        default=QuotationStatus.PENDING, 
+        nullable=False
+    )
+    branch_approval_status = db.Column(
+        db.Enum(QuotationStatus), 
+        default=QuotationStatus.PENDING, 
+        nullable=False
+    )
+    
+    # Overall status
+    overall_status = db.Column(
+        db.String(50), nullable=False, default='pending'
+    )
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=jamaica_now)
+    updated_at = db.Column(db.DateTime, default=jamaica_now, onupdate=jamaica_now)
+
+    # Relationships
+    uploader = db.relationship(
+        'User', foreign_keys=[uploaded_by], backref='uploaded_quotations'
+    )
+    approval_history = db.relationship(
+        'RFQApprovalHistory', backref='quotation', lazy='dynamic',
+        cascade='all, delete-orphan',
+        order_by='RFQApprovalHistory.approved_at.desc()'
+    )
+
+    def __repr__(self):
+        return f'<Quotation {self.id} for RFQ {self.rfq_id}>'
+
+
+class RFQApprovalHistory(db.Model):
+    """Immutable audit trail for RFQ and Quotation approvals.
+    
+    Similar to ReviewHistory for samples, this records every approval action
+    (approve, reject, return) to maintain a tamper-resistant approval trail.
+    Previous approvals are never lost when items are returned for clarification.
+    """
+    __tablename__ = 'rfq_approval_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    rfq_id = db.Column(
+        db.Integer, db.ForeignKey('rfqs.id'), nullable=True, index=True
+    )
+    quotation_id = db.Column(
+        db.Integer, db.ForeignKey('quotations.id'), nullable=True, index=True
+    )
+    
+    # Approval stage
+    approval_stage = db.Column(
+        db.String(50), nullable=False
+    )  # 'specification_review', 'branch_approval'
+    
+    # Action taken
+    action = db.Column(db.Enum(ApprovalAction), nullable=False)
+    
+    # Approver details
+    approver_id = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=False
+    )
+    approved_at = db.Column(db.DateTime, default=jamaica_now)
+    
+    # Comments from approver
+    comments = db.Column(db.Text, nullable=True)
+    
+    # State transition tracking
+    previous_stage = db.Column(db.String(50), nullable=True)
+    new_stage = db.Column(db.String(50), nullable=True)
+
+    # Relationships
+    rfq = db.relationship('RFQ', foreign_keys=[rfq_id])
+    quotation = db.relationship('Quotation', foreign_keys=[quotation_id])
+    approver = db.relationship('User', foreign_keys=[approver_id], backref='rfq_approvals')
+
+    def __repr__(self):
+        return f'<RFQApprovalHistory {self.approval_stage} {self.action.value} at {self.approved_at}>'
