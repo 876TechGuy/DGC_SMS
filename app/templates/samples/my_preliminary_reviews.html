@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}My Preliminary Reviews - DGC SMS{% endblock %}
+
+{% block content %}
+{% set action_colors = {'approved': 'success', 'returned': 'danger'} %}
+
+<div class="page-header">
+    <h2><i class="bi bi-clipboard-check"></i> My Preliminary Reviews</h2>
+    <p class="text-muted mb-0">
+        Every preliminary review you have completed, for every analyst — including
+        reports that were returned and any subsequent preliminary reviews conducted
+        after resubmission.
+    </p>
+</div>
+
+<!-- Per-analyst summary -->
+{% if analyst_summary %}
+<div class="card mb-3">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-people me-2"></i>Summary by Analyst</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Analyst</th>
+                    <th class="text-center">Approved</th>
+                    <th class="text-center">Returned</th>
+                    <th class="text-center">Total Reviews</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in analyst_summary %}
+                <tr>
+                    <td>{{ row.analyst.full_name }}</td>
+                    <td class="text-center"><span class="badge bg-success">{{ row.approved }}</span></td>
+                    <td class="text-center"><span class="badge bg-danger">{{ row.returned }}</span></td>
+                    <td class="text-center fw-semibold">{{ row.total }}</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary"
+                           href="{{ url_for('samples.my_preliminary_reviews', analyst_id=row.analyst.id, action=action_filter, search=search) }}">
+                            View
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-6 col-md-3">
+                <label class="form-label small fw-semibold mb-1">Analyst</label>
+                <select name="analyst_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="0">— All Analysts —</option>
+                    {% for a in analysts %}
+                    <option value="{{ a.id }}" {% if analyst_id == a.id %}selected{% endif %}>{{ a.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <label class="form-label small fw-semibold mb-1">Outcome</label>
+                <select name="action" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="" {% if not action_filter %}selected{% endif %}>All Outcomes</option>
+                    <option value="approved" {% if action_filter == 'approved' %}selected{% endif %}>Approved</option>
+                    <option value="returned" {% if action_filter == 'returned' %}selected{% endif %}>Returned</option>
+                </select>
+            </div>
+            <div class="col-sm-8 col-md-4">
+                <label class="form-label small fw-semibold mb-1">Search</label>
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="Lab number or test name…" value="{{ search }}">
+            </div>
+            <div class="col-sm-4 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm w-100">
+                    <i class="bi bi-search me-1"></i>Filter
+                </button>
+                <a href="{{ url_for('samples.my_preliminary_reviews') }}" class="btn btn-outline-secondary btn-sm w-100">
+                    Reset
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Review list -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Review History</h5>
+    </div>
+    <div class="card-body">
+        {% if reviews %}
+        {% for rh in reviews %}
+        {% set a = rh.assignment %}
+        <div class="border rounded p-3 mb-3" style="background: var(--bs-tertiary-bg);">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                <div>
+                    <span class="badge bg-{{ action_colors.get(rh.action, 'secondary') }} me-1">{{ rh.action | title }}</span>
+                    {% if rh.review_number and rh.review_number > 1 %}
+                    <span class="badge bg-info text-dark me-1">Resubmission — Review #{{ rh.review_number }}</span>
+                    {% else %}
+                    <span class="text-muted">Review #{{ rh.review_number }}</span>
+                    {% endif %}
+                </div>
+                <small class="text-muted">{{ rh.reviewed_at.strftime('%d %b %Y %H:%M') if rh.reviewed_at else '—' }}</small>
+            </div>
+            <p class="mb-1 small">
+                <strong>Sample:</strong>
+                {% if rh.sample %}
+                <a href="{{ url_for('samples.detail', sample_id=rh.sample.id) }}">{{ rh.sample.lab_number }}</a>
+                {% else %}—{% endif %}
+                {% if a %}&nbsp;—&nbsp;<strong>Test:</strong> {{ a.test_name }}{% endif %}
+            </p>
+            <p class="mb-1 small">
+                <strong>Analyst:</strong>
+                {% if a and a.chemist %}
+                {{ a.chemist.full_name }}
+                {% else %}Unknown{% endif %}
+            </p>
+            {% if rh.comments %}
+            <p class="mb-0 small"><strong>Comments:</strong> {{ rh.comments }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if pagination and pagination.pages > 1 %}
+        <nav aria-label="My preliminary reviews pages" class="mt-3">
+            <ul class="pagination pagination-sm mb-0 justify-content-end">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('samples.my_preliminary_reviews', page=(pagination.prev_num if pagination.has_prev else pagination.page), analyst_id=analyst_id, action=action_filter, search=search) }}">Previous</a>
+                </li>
+                {% for p in pagination.iter_pages(left_edge=1, left_current=1, right_current=2, right_edge=1) %}
+                    {% if p %}
+                    <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_for('samples.my_preliminary_reviews', page=p, analyst_id=analyst_id, action=action_filter, search=search) }}">{{ p }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('samples.my_preliminary_reviews', page=(pagination.next_num if pagination.has_next else pagination.page), analyst_id=analyst_id, action=action_filter, search=search) }}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">No preliminary reviews found for the selected filters.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
