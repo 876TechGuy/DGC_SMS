@@ -31,6 +31,9 @@ def _verify_schema_compatibility(app):
         'custom_role_permissions': {'custom_role_id', 'permission'},
         'user_custom_roles': {'user_id', 'custom_role_id'},
         'dropdown_configs': {'category', 'value'},
+        'rfqs': {'rfq_number', 'title', 'branch', 'status', 'created_by'},
+        'quotations': {'rfq_id', 'supplier_name', 'uploaded_by'},
+        'rfq_approval_history': {'rfq_id', 'quotation_id', 'approval_stage', 'action', 'approver_id'},
     }
 
     engine = db.engine
@@ -126,6 +129,9 @@ def create_app(config_name=None):
     from app.samples import samples_bp
     app.register_blueprint(samples_bp, url_prefix='/samples')
 
+    from app.rfq import rfq_bp
+    app.register_blueprint(rfq_bp, url_prefix='/rfq')
+
     from app.main import main_bp
     app.register_blueprint(main_bp)
 
@@ -137,10 +143,13 @@ def create_app(config_name=None):
             _verify_schema_compatibility(app)
 
     # Make enums available in all templates
-    from app.models import Role, Branch, Permission
+    from app.models import Role, Branch, Permission, RFQStatus, QuotationStatus, ApprovalAction
     app.jinja_env.globals['Role'] = Role
     app.jinja_env.globals['Branch'] = Branch
     app.jinja_env.globals['Permission'] = Permission
+    app.jinja_env.globals['RFQStatus'] = RFQStatus
+    app.jinja_env.globals['QuotationStatus'] = QuotationStatus
+    app.jinja_env.globals['ApprovalAction'] = ApprovalAction
 
     # Custom Jinja2 filter to parse JSON strings in templates
     import json

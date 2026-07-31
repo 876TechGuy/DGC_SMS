@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1>Audit Trail</h1>
+            <p class="text-muted">Complete approval history for RFQ {{ rfq.rfq_number }}: {{ rfq.title }}</p>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Approval History</h5>
+                </div>
+                {% if approval_history %}
+                <div class="card-body p-0">
+                    <div class="timeline-container p-4">
+                        {% for history in approval_history %}
+                        <div class="timeline-item mb-4 pb-4 border-bottom">
+                            <div class="row">
+                                <div class="col-md-2">
+                                    <div class="timeline-marker">
+                                        {% if history.action == ApprovalAction.APPROVED %}
+                                        <span class="badge badge-success badge-lg">
+                                            <i class="fas fa-check"></i> Approved
+                                        </span>
+                                        {% elif history.action == ApprovalAction.REJECTED %}
+                                        <span class="badge badge-danger badge-lg">
+                                            <i class="fas fa-times"></i> Rejected
+                                        </span>
+                                        {% elif history.action == ApprovalAction.RETURNED %}
+                                        <span class="badge badge-info badge-lg">
+                                            <i class="fas fa-redo"></i> Returned
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-md-10">
+                                    <h6 class="mb-1">
+                                        {{ history.approval_stage.replace('_', ' ').title() }}
+                                    </h6>
+                                    <p class="text-muted mb-2">
+                                        <strong>{{ history.approver.full_name }}</strong>
+                                        <br>
+                                        {{ history.approved_at.strftime('%Y-%m-%d at %H:%M') }}
+                                    </p>
+                                    {% if history.comments %}
+                                    <div class="alert alert-light border mb-2">
+                                        <strong>Comments:</strong>
+                                        <p class="mb-0">{{ history.comments }}</p>
+                                    </div>
+                                    {% endif %}
+                                    {% if history.new_stage and history.previous_stage %}
+                                    <small class="text-muted">
+                                        Status: {{ history.previous_stage }} → {{ history.new_stage }}
+                                    </small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="card-body text-center text-muted py-4">
+                    No approval history yet. The RFQ is still in {{ rfq.status.value }} status.
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- RFQ Summary -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">RFQ Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>RFQ Number:</strong>
+                            <p>{{ rfq.rfq_number }}</p>
+                            
+                            <strong>Branch:</strong>
+                            <p>{{ rfq.branch.value }}</p>
+                            
+                            <strong>Created By:</strong>
+                            <p>{{ rfq.creator.full_name }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Current Status:</strong>
+                            <p>
+                                {% if rfq.status == RFQStatus.DRAFT %}
+                                    <span class="badge badge-secondary badge-lg">Draft</span>
+                                {% elif rfq.status == RFQStatus.AWAITING_QUOTES %}
+                                    <span class="badge badge-info badge-lg">Awaiting Quotes</span>
+                                {% elif rfq.status == RFQStatus.AWAITING_SPEC_REVIEW %}
+                                    <span class="badge badge-warning badge-lg">Spec Review</span>
+                                {% elif rfq.status == RFQStatus.AWAITING_BRANCH_APPROVAL %}
+                                    <span class="badge badge-warning badge-lg">Branch Approval</span>
+                                {% elif rfq.status == RFQStatus.APPROVED %}
+                                    <span class="badge badge-success badge-lg">Approved</span>
+                                {% elif rfq.status == RFQStatus.REJECTED %}
+                                    <span class="badge badge-danger badge-lg">Rejected</span>
+                                {% elif rfq.status == RFQStatus.CANCELLED %}
+                                    <span class="badge badge-dark badge-lg">Cancelled</span>
+                                {% endif %}
+                            </p>
+                            
+                            <strong>Created On:</strong>
+                            <p>{{ rfq.created_at.strftime('%Y-%m-%d at %H:%M') }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="mt-4">
+                <a href="{{ url_for('rfq.view_rfq_detail', rfq_id=rfq.id) }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to RFQ
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline-marker {
+    text-align: center;
+}
+
+.badge-lg {
+    padding: 0.5rem 1rem;
+    font-size: 0.95rem;
+}
+
+.timeline-container {
+    max-width: 800px;
+}
+</style>
+{% endblock %}

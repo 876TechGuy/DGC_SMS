@@ -835,3 +835,171 @@ def send_report_date_reminders():
             f'Report date reminders: sent {count} notification(s).'
         )
     return count
+
+
+# ---------------------------------------------------------------------------
+# RFQ (Request For Quotation) Notifications
+# ---------------------------------------------------------------------------
+
+def notify_rfq_quotes_uploaded(rfq, quotation_count):
+    """Notify specification reviewer that quotations have been uploaded.
+    
+    Triggered when one or more quotations are uploaded against an RFQ,
+    indicating that specification review is needed.
+    """
+    if not rfq.specification_reviewer_id:
+        current_app.logger.warning(
+            f'Cannot notify for RFQ {rfq.rfq_number}: '
+            'no specification reviewer assigned'
+        )
+        return 0
+    
+    from flask import url_for
+    
+    count = 0
+    reviewer = User.query.get(rfq.specification_reviewer_id)
+    if reviewer and reviewer.is_active_user:
+        title = f'Specification Review Needed: RFQ {rfq.rfq_number}'
+        message = (
+            f'RFQ "{rfq.title}" has received {quotation_count} quotation(s) '
+            f'and requires specification review. '
+            f'Please review and approve/reject the quotations.'
+        )
+        link = url_for('rfq.view_rfq_detail', rfq_id=rfq.id, _external=False)
+        create_notification(reviewer.id, title, message, link, send_mail=True)
+        count += 1
+    
+    return count
+
+
+def notify_rfq_spec_review_completed(rfq, action, approvals_count):
+    """Notify branch head that specification review is complete.
+    
+    Triggered when the specification reviewer approves quotations,
+    indicating that branch head final approval is needed.
+    """
+    if not rfq.branch_head_approval_by_id:
+        current_app.logger.warning(
+            f'Cannot notify for RFQ {rfq.rfq_number}: '
+            'no branch head assigned for approval'
+        )
+        return 0
+    
+    from flask import url_for
+    
+    count = 0
+    branch_head = User.query.get(rfq.branch_head_approval_by_id)
+    if branch_head and branch_head.is_active_user:
+        title = f'Branch Head Approval Required: RFQ {rfq.rfq_number}'
+        message = (
+            f'RFQ "{rfq.title}" has completed specification review. '
+            f'{approvals_count} quotation(s) are approved for your final review. '
+            f'Please review and approve or reject for final award.'
+        )
+        link = url_for('rfq.view_rfq_detail', rfq_id=rfq.id, _external=False)
+        create_notification(branch_head.id, title, message, link, send_mail=True)
+        count += 1
+    
+    return count
+
+
+def notify_rfq_approved(rfq):
+    """Notify requestor that RFQ has been fully approved.
+    
+    Triggered when the branch head approves the RFQ,
+    indicating it can proceed to supplier selection/award.
+    """
+    from flask import url_for
+    
+    count = 0
+    requestor = User.query.get(rfq.created_by)
+    if requestor and requestor.is_active_user:
+        title = f'RFQ Approved: {rfq.rfq_number}'
+        message = (
+            f'RFQ "{rfq.title}" has been fully approved '
+            f'and is ready for supplier selection and award.'
+        )
+        link = url_for('rfq.view_rfq_detail', rfq_id=rfq.id, _external=False)
+        create_notification(requestor.id, title, message, link, send_mail=True)
+        count += 1
+    
+    return count
+
+
+def notify_rfq_rejected(rfq, stage, rejection_reason=None):
+    """Notify requestor that RFQ has been rejected.
+    
+    Triggered when either the specification reviewer or branch head
+    rejects the RFQ.
+    """
+    from flask import url_for
+    
+    count = 0
+    requestor = User.query.get(rfq.created_by)
+    if requestor and requestor.is_active_user:
+        title = f'RFQ Rejected: {rfq.rfq_number}'
+        message = (
+            f'RFQ "{rfq.title}" has been rejected at the {stage} stage. '
+        )
+        if rejection_reason:
+            message += f'Reason: {rejection_reason}'
+        
+        link = url_for('rfq.view_rfq_detail', rfq_id=rfq.id, _external=False)
+        create_notification(requestor.id, title, message, link, send_mail=True)
+        count += 1
+    
+    return count
+
+
+def notify_rfq_returned_for_clarification(rfq, stage, clarification_comments=None):
+    """Notify requestor that RFQ has been returned for clarification.
+    
+    Triggered when the specification reviewer or branch head returns
+    the RFQ for additional information or corrections.
+    """
+    from flask import url_for
+    
+    count = 0
+    requestor = User.query.get(rfq.created_by)
+    if requestor and requestor.is_active_user:
+        title = f'RFQ Returned for Clarification: {rfq.rfq_number}'
+        message = (
+            f'RFQ "{rfq.title}" has been returned from the {stage} stage '
+            f'for clarification. '
+        )
+        if clarification_comments:
+            message += f'Comments: {clarification_comments}'
+        
+        link = url_for('rfq.view_rfq_detail', rfq_id=rfq.id, _external=False)
+        create_notification(requestor.id, title, message, link, send_mail=True)
+        count += 1
+    
+    return count
+
+
+def notify_quotation_returned_for_clarification(quotation, stage, clarification_comments=None):
+    """Notify supplier that their quotation has been returned for clarification.
+    
+    Triggered when the specification reviewer or branch head requests
+    additional information or corrections to a quotation.
+    """
+    from flask import url_for
+    
+    count = 0
+    if quotation.supplier_email:
+        title = f'Quotation Returned for Clarification: RFQ {quotation.rfq.rfq_number}'
+        message = (
+            f'Your quotation for RFQ "{quotation.rfq.title}" '
+            f'has been returned from the {stage} stage for clarification. '
+        )
+        if clarification_comments:
+            message += f'Comments: {clarification_comments}'
+        
+        send_email(
+            subject=title,
+            recipients=[quotation.supplier_email],
+            body_text=message,
+        )
+        count += 1
+    
+    return count
