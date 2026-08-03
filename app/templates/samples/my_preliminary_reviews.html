@@ -48,14 +48,17 @@
             </thead>
             <tbody>
                 {% for row in analyst_summary %}
-                <tr>
+                <tr {% if analyst_id == row.analyst.id %}class="table-active"{% endif %}>
                     <td>{{ row.analyst.full_name }}</td>
                     <td class="text-center"><span class="badge bg-success">{{ row.approved }}</span></td>
                     <td class="text-center"><span class="badge bg-danger">{{ row.returned }}</span></td>
                     <td class="text-center fw-semibold">{{ row.total }}</td>
                     <td class="text-end">
+                        {# Drill down to this analyst's reviews. The anchor jumps
+                           straight to the loaded Review History records so the
+                           navigation is visible (no apparent page "reload"). #}
                         <a class="btn btn-sm btn-outline-primary"
-                           href="{{ url_for('samples.my_preliminary_reviews', analyst_id=row.analyst.id, action=action_filter, search=search, assigned_to=assigned_to, branch=branch_filter, date_from=date_from, date_to=date_to) }}">
+                           href="{{ url_for('samples.my_preliminary_reviews', analyst_id=row.analyst.id, action=action_filter, search=search, assigned_to=assigned_to, branch=branch_filter, date_from=date_from, date_to=date_to, _anchor='review-history') }}">
                             View
                         </a>
                     </td>
@@ -136,9 +139,18 @@
 </div>
 
 <!-- Review list -->
-<div class="card">
-    <div class="card-header">
+<div class="card" id="review-history">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Review History</h5>
+        {% if selected_analyst %}
+        <span>
+            <span class="badge bg-primary">Showing reviews for {{ selected_analyst.full_name }}</span>
+            <a class="btn btn-sm btn-outline-secondary ms-2"
+               href="{{ url_for('samples.my_preliminary_reviews', action=action_filter, search=search, assigned_to=assigned_to, branch=branch_filter, date_from=date_from, date_to=date_to) }}">
+                Show all analysts
+            </a>
+        </span>
+        {% endif %}
     </div>
     <div class="card-body">
         {% if reviews %}

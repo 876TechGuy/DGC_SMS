@@ -535,7 +535,8 @@
                         <i class="bi bi-collection"></i> Samples
                     </a>
                 </li>
-                {% if current_user.has_any_role(Role.OFFICER, Role.ADMIN, Role.HOD) %}
+                {# Explicit REGISTER_SAMPLE permission overrides role restrictions #}
+                {% if current_user.has_permission(Permission.REGISTER_SAMPLE) or current_user.has_any_role(Role.OFFICER, Role.ADMIN, Role.HOD) %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'samples.register' %}active{% endif %}"
                        href="{{ url_for('samples.register') }}">
@@ -564,7 +565,7 @@
                     </a>
                 </li>
                 {% endif %}
-                {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) or current_user.has_permission(Permission.VIEW_ALL_BRANCHES_REPORT) or current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT) %}
+                {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) or current_user.has_permission(Permission.VIEW_ALL_BRANCHES_REPORT) or current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT) or current_user.has_permission(Permission.KPI_VIEW) %}
                 <li><div class="sidebar-section-label">Reports</div></li>
                 {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) or current_user.has_permission(Permission.VIEW_ALL_BRANCHES_REPORT) %}
                 <li class="nav-item">
@@ -582,7 +583,8 @@
                     </a>
                 </li>
                 {% endif %}
-                {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) %}
+                {# Explicit KPI_VIEW permission overrides role restrictions #}
+                {% if current_user.has_permission(Permission.KPI_VIEW) or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'main.pharma_report' %}active{% endif %}"
                        href="{{ url_for('main.pharma_report') }}">
@@ -622,7 +624,7 @@
                 {% endif %}
                 {% endif %}
 
-                {% if current_user.has_any_role(Role.ADMIN, Role.HOD, Role.DEPUTY) %}
+                {% if current_user.has_any_role(Role.ADMIN, Role.HOD, Role.DEPUTY) or current_user.has_permission(Permission.MANAGE_USERS) %}
                 <li><div class="sidebar-section-label">Admin</div></li>
                 {% if current_user.has_any_role(Role.HOD, Role.DEPUTY, Role.ADMIN) %}
                 <li class="nav-item">
@@ -640,7 +642,8 @@
                     </a>
                 </li>
                 {% endif %}
-                {% if current_user.has_any_role(Role.ADMIN, Role.HOD) %}
+                {# Explicit MANAGE_USERS permission overrides role restrictions #}
+                {% if current_user.has_permission(Permission.MANAGE_USERS) or current_user.has_any_role(Role.ADMIN, Role.HOD) %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint and 'auth.user' in request.endpoint %}active{% endif %}"
                        href="{{ url_for('auth.user_list') }}">

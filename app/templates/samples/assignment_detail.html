@@ -35,12 +35,12 @@
             <i class="bi bi-upload me-1"></i>Submit Report
         </button>
         {% endif %}
-        {% if current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN) and assignment.status.value == 'Report Submitted' %}
+        {% if (current_user.has_permission(Permission.PRELIMINARY_REVIEW) or current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN)) and assignment.status.value == 'Report Submitted' %}
         <a href="{{ url_for('samples.preliminary_review', assignment_id=assignment.id) }}" class="btn btn-info btn-sm">
             <i class="bi bi-clipboard-check me-1"></i>Preliminary Review
         </a>
         {% endif %}
-        {% if (current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) and assignment.status.value == 'Senior Chemist Review' %}
+        {% if (current_user.has_permission(Permission.TECHNICAL_REVIEW) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) and assignment.status.value == 'Senior Chemist Review' %}
         <a href="{{ url_for('samples.review_report', assignment_id=assignment.id) }}" class="btn btn-warning btn-sm">
             <i class="bi bi-clipboard-check me-1"></i>Senior Chemist Review
         </a>

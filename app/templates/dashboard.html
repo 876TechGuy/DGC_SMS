@@ -210,7 +210,8 @@
 <div class="card mb-4">
     <div class="card-header">Quick Actions</div>
     <div class="card-body d-flex gap-3 flex-wrap">
-        {% if current_user.has_any_role(Role.OFFICER, Role.ADMIN, Role.HOD) %}
+        {# Explicit REGISTER_SAMPLE permission overrides role restrictions #}
+        {% if current_user.has_permission(Permission.REGISTER_SAMPLE) or current_user.has_any_role(Role.OFFICER, Role.ADMIN, Role.HOD) %}
         <a href="{{ url_for('samples.register') }}" class="quick-action-btn qa-primary">
             <i class="bi bi-plus-circle-fill"></i>
             <span>Register Sample</span>
@@ -224,7 +225,8 @@
             <i class="bi bi-bell"></i>
             <span>Notifications</span>
         </a>
-        {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) %}
+        {# Explicit VIEW_ANALYST_PERFORMANCE_REPORT permission overrides role restrictions #}
+        {% if current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT) or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) %}
         <a href="{{ url_for('main.analyst_report') }}" class="quick-action-btn">
             <i class="bi bi-person-lines-fill"></i>
             <span>Analyst Report</span>

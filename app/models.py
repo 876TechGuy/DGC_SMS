@@ -457,13 +457,28 @@ class User(UserMixin, db.Model):
         return bool(self.branches & set(branches))
 
     def has_permission(self, permission):
-        """Return True if the user has the given permission explicitly granted.
-        Admin users always have all permissions."""
-        if self.has_role(Role.ADMIN):
-            return True
+        """Return True if the user holds the given permission.
+
+        Authorization flow (explicit grants take precedence over roles):
+          1. Check explicit user permission grants first — a permission an
+             admin has manually enabled for this user always wins, regardless
+             of what the user's role(s) would otherwise allow.
+          2. Check permissions granted through the user's custom roles.
+          3. Fall back to role-based access (the Admin role implies every
+             permission).
+          4. Otherwise, deny.
+        """
+        # 1. Explicit per-user grant — highest precedence.
         if permission in self.permissions:
             return True
-        return any(permission in cr.permissions for cr in self.custom_roles_rel)
+        # 2. Custom-role grant.
+        if any(permission in cr.permissions for cr in self.custom_roles_rel):
+            return True
+        # 3. Role-based fallback: Admins implicitly hold all permissions.
+        if self.has_role(Role.ADMIN):
+            return True
+        # 4. No grant found — deny.
+        return False
 
     @property
     def role_names(self):
