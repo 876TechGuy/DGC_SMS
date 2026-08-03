@@ -223,7 +223,10 @@ def logout():
 @auth_bp.route('/users')
 @login_required
 def user_list():
-    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+    # Authorization flow: explicit MANAGE_USERS permission grants take
+    # precedence — checked via has_permission() — before role-based access.
+    if not (current_user.has_permission(Permission.MANAGE_USERS)
+            or current_user.has_any_role(Role.ADMIN, Role.HOD)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
     users = User.query.order_by(User.last_name).all()
@@ -233,7 +236,9 @@ def user_list():
 @auth_bp.route('/users/create', methods=['GET', 'POST'])
 @login_required
 def user_create():
-    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+    # Explicit MANAGE_USERS permission overrides role restrictions.
+    if not (current_user.has_permission(Permission.MANAGE_USERS)
+            or current_user.has_any_role(Role.ADMIN, Role.HOD)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
     form = UserCreateForm()
@@ -304,7 +309,9 @@ def user_create():
 @auth_bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
 def user_edit(user_id):
-    if not current_user.has_any_role(Role.ADMIN, Role.HOD):
+    # Explicit MANAGE_USERS permission overrides role restrictions.
+    if not (current_user.has_permission(Permission.MANAGE_USERS)
+            or current_user.has_any_role(Role.ADMIN, Role.HOD)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
     user = db.get_or_404(User, user_id)

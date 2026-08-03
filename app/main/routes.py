@@ -743,8 +743,11 @@ def _resubmission_type_breakdown_for_assignments(assignment_ids):
 @login_required
 def kpi_report():
     """KPI Target vs Actual report (quarterly)."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -806,8 +809,11 @@ def kpi_report():
 @login_required
 def kpi_report_download():
     """Download the KPI report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -935,8 +941,11 @@ def kpi_targets():
 @login_required
 def pharma_report():
     """Pharmaceutical sample report with filtering and download."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1053,8 +1062,11 @@ def pharma_report():
 @login_required
 def pharma_report_download():
     """Download pharmaceutical report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1143,8 +1155,11 @@ def pharma_report_download():
 @login_required
 def milk_report():
     """Milk sample report with filtering and download."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1249,8 +1264,11 @@ def milk_report():
 @login_required
 def milk_report_download():
     """Download milk report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1334,8 +1352,11 @@ def milk_report_download():
 @login_required
 def toxicology_report():
     """Toxicology sample report with filtering."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1445,8 +1466,11 @@ def toxicology_report():
 @login_required
 def toxicology_report_download():
     """Download toxicology report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1532,8 +1556,11 @@ def toxicology_report_download():
 @login_required
 def alcohol_report():
     """Alcohol sample report with filtering and download."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1657,8 +1684,11 @@ def alcohol_report():
 @login_required
 def alcohol_report_download():
     """Download alcohol report as CSV."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 
@@ -1737,8 +1767,11 @@ def alcohol_report_download():
 @login_required
 def kpi_toxicology():
     """Toxicology-specific KPI report."""
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
-                                     Role.DEPUTY, Role.ADMIN):
+    # Explicit KPI_VIEW permission overrides role restrictions
+    # (explicit user grants are evaluated before role-based access).
+    if not (current_user.has_permission(Permission.KPI_VIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                         Role.DEPUTY, Role.ADMIN)):
         flash('Access denied.', 'danger')
         return redirect(url_for('main.dashboard'))
 

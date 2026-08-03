@@ -45,7 +45,8 @@
             <i class="bi bi-pencil me-1"></i>Edit
         </a>
         {% endif %}
-        {% if current_user.is_branch_head() or current_user.has_role(Role.ADMIN) %}
+        {# Explicit ASSIGN_SAMPLE permission overrides role restrictions #}
+        {% if current_user.has_permission(Permission.ASSIGN_SAMPLE) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN) %}
         <a href="{{ url_for('samples.assign', sample_id=sample.id) }}" class="btn btn-primary btn-sm">
             <i class="bi bi-person-plus me-1"></i>Assign
         </a>
@@ -67,7 +68,7 @@
 </div>
 
 <!-- Workflow action banners -->
-{% if can_submit_to_deputy and (current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) %}
+{% if can_submit_to_deputy and (current_user.has_permission(Permission.TECHNICAL_REVIEW) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) %}
 <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-check-circle me-1"></i>
@@ -80,7 +81,7 @@
         <i class="bi bi-send me-1"></i>Submit to Deputy
     </a>
 </div>
-{% elif sv == 'Deputy Review' and current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN) %}
+{% elif sv == 'Deputy Review' and (current_user.has_permission(Permission.DEPUTY_REVIEW) or current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN)) %}
 <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-clipboard-check me-1"></i>
@@ -90,7 +91,7 @@
         <i class="bi bi-clipboard-check me-1"></i>Review Submission
     </a>
 </div>
-{% elif sv == 'Returned by Deputy' and (current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) %}
+{% elif sv == 'Returned by Deputy' and (current_user.has_permission(Permission.TECHNICAL_REVIEW) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-exclamation-triangle me-1"></i>
@@ -103,7 +104,7 @@
         <i class="bi bi-arrow-repeat me-1"></i>Resubmit to Deputy
     </a>
 </div>
-{% elif sv == 'Certificate Preparation' and current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN) %}
+{% elif sv == 'Certificate Preparation' and (current_user.has_permission(Permission.DEPUTY_REVIEW) or current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN)) %}
 <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-file-earmark-medical me-1"></i>
@@ -113,7 +114,7 @@
         <i class="bi bi-file-earmark-medical me-1"></i>Prepare Certificate
     </a>
 </div>
-{% elif sv == 'HOD Review' and current_user.has_any_role(Role.HOD, Role.ADMIN) %}
+{% elif sv == 'HOD Review' and (current_user.has_permission(Permission.HOD_REVIEW) or current_user.has_any_role(Role.HOD, Role.ADMIN)) %}
 <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-pen me-1"></i>
@@ -123,7 +124,7 @@
         <i class="bi bi-pen me-1"></i>Review &amp; Sign
     </a>
 </div>
-{% elif sv == 'Returned by HOD' and current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN) %}
+{% elif sv == 'Returned by HOD' and (current_user.has_permission(Permission.DEPUTY_REVIEW) or current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN)) %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center gap-3 mb-4">
     <div>
         <i class="bi bi-exclamation-triangle me-1"></i>
@@ -774,7 +775,8 @@
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Test Assignments</h5>
-        {% if current_user.is_branch_head() or current_user.has_role(Role.ADMIN) %}
+        {# Explicit ASSIGN_SAMPLE permission overrides role restrictions #}
+        {% if current_user.has_permission(Permission.ASSIGN_SAMPLE) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN) %}
         <a href="{{ url_for('samples.assign', sample_id=sample.id) }}" class="btn btn-sm btn-primary">
             <i class="bi bi-plus me-1"></i>Add Assignment
         </a>
@@ -840,19 +842,19 @@
                                 <i class="bi bi-upload"></i>
                             </button>
                             {% endif %}
-                            {% if (current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN) or current_user.id == sample.uploaded_by) and a.status.value == 'Report Submitted' %}
+                            {% if (current_user.has_permission(Permission.PRELIMINARY_REVIEW) or current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN) or current_user.id == sample.uploaded_by) and a.status.value == 'Report Submitted' %}
                             <a href="{{ url_for('samples.preliminary_review', assignment_id=a.id) }}"
                                class="btn btn-sm btn-outline-info" title="Preliminary Review">
                                 <i class="bi bi-clipboard-check"></i>
                             </a>
                             {% endif %}
-                            {% if (current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) and a.status.value == 'Senior Chemist Review' %}
+                            {% if (current_user.has_permission(Permission.TECHNICAL_REVIEW) or current_user.is_branch_head() or current_user.has_role(Role.ADMIN)) and a.status.value == 'Senior Chemist Review' %}
                             <a href="{{ url_for('samples.review_report', assignment_id=a.id) }}"
                                class="btn btn-sm btn-outline-warning" title="Senior Chemist Review">
                                 <i class="bi bi-clipboard-check"></i>
                             </a>
                             {% endif %}
-                            {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN) and a.status.value not in ['Assigned', 'Returned for Correction'] %}
+                            {% if (current_user.has_permission(Permission.TECHNICAL_REVIEW) or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN)) and a.status.value not in ['Assigned', 'Returned for Correction'] %}
                             <button type="button"
                                     class="btn btn-sm btn-outline-warning open-return-modal"
                                     title="Return to Analyst"
@@ -863,7 +865,7 @@
                                 <i class="bi bi-arrow-counterclockwise"></i>
                             </button>
                             {% endif %}
-                            {% if (current_user.has_any_role(Role.ADMIN, Role.HOD) or current_user.id == a.assigned_by) and a.status.value in ['Assigned', 'In Progress'] %}
+                            {% if (current_user.has_permission(Permission.ASSIGN_SAMPLE) or current_user.has_any_role(Role.ADMIN, Role.HOD) or current_user.id == a.assigned_by) and a.status.value in ['Assigned', 'In Progress'] %}
                             <form method="POST" action="{{ url_for('samples.remove_assignment', assignment_id=a.id) }}" class="d-inline" onsubmit="return confirm('Remove this assignment?')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Remove Assignment">
@@ -871,7 +873,7 @@
                                 </button>
                             </form>
                             {% endif %}
-                            {% if current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN) %}
+                            {% if current_user.has_permission(Permission.ASSIGN_SAMPLE) or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN) %}
                             <a href="{{ url_for('samples.edit_assignment', assignment_id=a.id) }}"
                                class="btn btn-sm btn-outline-secondary" title="Edit Assignment">
                                 <i class="bi bi-pencil"></i>

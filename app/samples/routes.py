@@ -961,9 +961,12 @@ def remove_assignment(assignment_id):
     assignment = db.get_or_404(SampleAssignment, assignment_id)
     sample = assignment.sample
 
-    # Only Admin, HOD, Senior Chemist, or the user who made the assignment can remove it
+    # Admin, HOD, Senior Chemist, the user who made the assignment, or a user
+    # explicitly granted ASSIGN_SAMPLE can remove it (explicit permission
+    # grants override role restrictions).
     can_remove = (
-        current_user.has_any_role(Role.ADMIN, Role.HOD, Role.SENIOR_CHEMIST)
+        current_user.has_permission(Permission.ASSIGN_SAMPLE)
+        or current_user.has_any_role(Role.ADMIN, Role.HOD, Role.SENIOR_CHEMIST)
         or current_user.id == assignment.assigned_by
     )
     if not can_remove:
@@ -1031,7 +1034,9 @@ def return_to_analyst(assignment_id):
     assignment = db.get_or_404(SampleAssignment, assignment_id)
     sample = assignment.sample
 
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN):
+    # Explicit TECHNICAL_REVIEW permission overrides role restrictions.
+    if not (current_user.has_permission(Permission.TECHNICAL_REVIEW)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN)):
         flash('Only Senior Chemists, HOD, or Admins can return assignments to the analyst.', 'danger')
         return redirect(url_for('samples.detail', sample_id=sample.id))
 
@@ -1113,8 +1118,10 @@ def edit_assignment(assignment_id):
     assignment = db.get_or_404(SampleAssignment, assignment_id)
     sample = assignment.sample
 
-    # Senior Chemist, HOD, and Admin can edit assignments
-    if not current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN):
+    # Senior Chemist, HOD, Admin, or an explicit ASSIGN_SAMPLE permission
+    # grant can edit assignments (explicit permission overrides roles).
+    if not (current_user.has_permission(Permission.ASSIGN_SAMPLE)
+            or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.ADMIN)):
         flash('Only Senior Chemists, HOD, or Admins can edit assignments.', 'danger')
         return redirect(url_for('samples.assignment_detail', assignment_id=assignment.id))
 
@@ -2067,6 +2074,22 @@ def my_preliminary_reviews():
         User.first_name, User.last_name
     ).all() if analyst_ids else []
 
+    # --- Error handling for missing records --------------------------------
+    # If a specific analyst was requested (e.g. via the workload summary
+    # "View" action) but that analyst has no reviews within the caller's
+    # visibility scope — or does not exist at all — tell the user instead of
+    # silently rendering what looks like an unchanged page.
+    if analyst_id and analyst_id not in analyst_ids:
+        requested_analyst = db.session.get(User, analyst_id)
+        if requested_analyst:
+            flash(
+                f'No preliminary reviews found for {requested_analyst.full_name} '
+                'within your visibility scope.', 'warning'
+            )
+        else:
+            flash('The requested analyst record could not be found.', 'warning')
+        analyst_id = 0
+
     # List of reviewers within scope — used to populate the "Assigned To"
     # filter for users with elevated (team/all) visibility.
     reviewers = []
@@ -2165,6 +2188,11 @@ def my_preliminary_reviews():
         ))
         db.session.commit()
 
+    # Resolve the analyst currently being viewed (drill-down from the
+    # workload summary "View" action) so the template can show which
+    # analyst's records are loaded.
+    selected_analyst = next((a for a in analysts if a.id == analyst_id), None)
+
     return render_template(
         'samples/my_preliminary_reviews.html',
         reviews=pagination.items,
@@ -2172,6 +2200,7 @@ def my_preliminary_reviews():
         analysts=analysts,
         analyst_summary=analyst_summary,
         analyst_id=analyst_id,
+        selected_analyst=selected_analyst,
         action_filter=action_filter,
         search=search,
         scope=scope,
@@ -2378,7 +2407,10 @@ def review_report(assignment_id):
 def submit_to_deputy(sample_id):
     sample = db.get_or_404(Sample, sample_id)
 
-    if not current_user.is_branch_head() and not current_user.has_role(Role.ADMIN):
+    # Explicit TECHNICAL_REVIEW permission overrides role restrictions.
+    if not (current_user.has_permission(Permission.TECHNICAL_REVIEW)
+            or current_user.is_branch_head()
+            or current_user.has_role(Role.ADMIN)):
         flash('Only Senior Chemists can submit to Deputy.', 'danger')
         return redirect(url_for('samples.detail', sample_id=sample.id))
 
@@ -2720,7 +2752,9 @@ def unreject_sample(sample_id):
 def prepare_certificate(sample_id):
     sample = db.get_or_404(Sample, sample_id)
 
-    if not current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN):
+    # Explicit DEPUTY_REVIEW permission overrides role restrictions.
+    if not (current_user.has_permission(Permission.DEPUTY_REVIEW)
+            or current_user.has_any_role(Role.DEPUTY, Role.HOD, Role.ADMIN)):
         flash('Only the Deputy Government Chemist can prepare certificates.', 'danger')
         return redirect(url_for('samples.detail', sample_id=sample.id))
 
