@@ -2533,7 +2533,7 @@ def _qa_reviewer_stats(assignment_ids):
     Queries ReviewHistory for all preliminary-type reviews on the given
     assignment IDs and aggregates totals per reviewer.  Returns a list of
     dicts (sorted by reviewer name) with keys:
-        name, total, approved, returned, return_rate
+        name, total, approved, returned, not_accepted, return_rate
     """
     if not assignment_ids:
         return []
@@ -2542,7 +2542,7 @@ def _qa_reviewer_stats(assignment_ids):
         .filter(
             ReviewHistory.assignment_id.in_(assignment_ids),
             ReviewHistory.review_type == 'preliminary',
-            ReviewHistory.action.in_(['approved', 'returned']),
+            ReviewHistory.action.in_(['approved', 'returned', 'not_accepted']),
         )
         .with_entities(
             ReviewHistory.reviewer_id,
@@ -2565,17 +2565,20 @@ def _qa_reviewer_stats(assignment_ids):
                 'total': 0,
                 'approved': 0,
                 'returned': 0,
+                'not_accepted': 0,
             }
         data[rid]['total'] += 1
         if row.action == 'approved':
             data[rid]['approved'] += 1
+        elif row.action == 'not_accepted':
+            data[rid]['not_accepted'] += 1
         else:
             data[rid]['returned'] += 1
 
     result = sorted(data.values(), key=lambda x: x['name'].lower())
     for entry in result:
         t = entry['total']
-        entry['return_rate'] = round(entry['returned'] / t * 100, 1) if t else 0.0
+        entry['return_rate'] = round((entry['returned'] + entry['not_accepted']) / t * 100, 1) if t else 0.0
     return result
 
 
@@ -2642,6 +2645,123 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
             found.append(label)
 
     return '; '.join(found) if found else 'See review comments'
+
+
+def _qa_preliminary_analyst_stats(assignments):
+    """Return per-analyst preliminary review stats for the QA Performance report.
+
+    For each analyst computes per-sample counts and timing metrics for
+    preliminary reviews that resulted in 'returned' or 'not_accepted' actions.
+
+    Returns a dict keyed by analyst chemist_id with keys:
+        name, qty_samples, lab_type,
+        returned_count, not_accepted_count,
+        avg_time_returned_hrs, avg_time_not_accepted_hrs,
+        total_time_returned_hrs, total_time_not_accepted_hrs
+    """
+    if not assignments:
+        return {}
+
+    # Build lookup: assignment_id → (chemist_id, chemist_name, report_submitted_at, sample_id, lab_type)
+    assign_map = {}
+    for a in assignments:
+        assign_map[a.id] = {
+            'chemist_id': a.chemist_id,
+            'chemist_name': a.chemist.full_name if a.chemist else 'Unknown',
+            'report_submitted_at': a.report_submitted_at,
+            'sample_id': a.sample_id,
+            'lab_type': _qa_branch_category(a.sample.sample_type) if a.sample else None,
+        }
+
+    assignment_ids = list(assign_map.keys())
+
+    # Fetch all preliminary review entries with action returned or not_accepted
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action.in_(['returned', 'not_accepted']),
+        )
+        .with_entities(
+            ReviewHistory.assignment_id,
+            ReviewHistory.action,
+            ReviewHistory.reviewed_at,
+        )
+        .order_by(ReviewHistory.reviewed_at.asc())
+        .all()
+    )
+
+    # Per-analyst accumulator: keyed by chemist_id
+    data = {}
+    # Track which samples have already been counted per action per analyst
+    # to enforce "per sample, counted once" rule.
+    seen_returned = {}     # (chemist_id, sample_id) → duration_seconds (first event)
+    seen_not_accepted = {} # (chemist_id, sample_id) → duration_seconds (first event)
+
+    for row in rows:
+        ainfo = assign_map.get(row.assignment_id)
+        if not ainfo:
+            continue
+        cid = ainfo['chemist_id']
+        sid = ainfo['sample_id']
+        lab_type = ainfo['lab_type']
+
+        if cid not in data:
+            data[cid] = {
+                'name': ainfo['chemist_name'],
+                'lab_type': lab_type or '—',
+                'sample_ids': set(),
+                'returned_count': 0,
+                'not_accepted_count': 0,
+                '_returned_durations': [],
+                '_not_accepted_durations': [],
+            }
+
+        entry = data[cid]
+        entry['sample_ids'].add(sid)
+
+        # Calculate duration (hours) if report_submitted_at is available
+        duration_hrs = None
+        if ainfo['report_submitted_at'] and row.reviewed_at:
+            delta = row.reviewed_at - ainfo['report_submitted_at']
+            duration_hrs = delta.total_seconds() / 3600.0
+
+        if row.action == 'returned':
+            key = (cid, sid)
+            if key not in seen_returned:
+                seen_returned[key] = duration_hrs
+                entry['returned_count'] += 1
+                if duration_hrs is not None:
+                    entry['_returned_durations'].append(duration_hrs)
+        else:  # not_accepted
+            key = (cid, sid)
+            if key not in seen_not_accepted:
+                seen_not_accepted[key] = duration_hrs
+                entry['not_accepted_count'] += 1
+                if duration_hrs is not None:
+                    entry['_not_accepted_durations'].append(duration_hrs)
+
+    # Compute averages and totals; clean up internal accumulators
+    result = {}
+    for cid, entry in data.items():
+        ret_durs = entry.pop('_returned_durations')
+        na_durs = entry.pop('_not_accepted_durations')
+
+        total_ret = sum(ret_durs) if ret_durs else 0.0
+        total_na = sum(na_durs) if na_durs else 0.0
+        avg_ret = round(total_ret / len(ret_durs), 2) if ret_durs else 0.0
+        avg_na = round(total_na / len(na_durs), 2) if na_durs else 0.0
+
+        entry['qty_samples'] = len(entry['sample_ids'])
+        entry.pop('sample_ids')
+        entry['avg_time_returned_hrs'] = avg_ret
+        entry['avg_time_not_accepted_hrs'] = avg_na
+        entry['total_time_returned_hrs'] = round(total_ret, 2)
+        entry['total_time_not_accepted_hrs'] = round(total_na, 2)
+        result[cid] = entry
+
+    return result
 
 
 @main_bp.route('/reports/qa-performance')
@@ -2753,6 +2873,12 @@ def qa_performance_summary():
     # Preliminary reviewer statistics
     reviewer_stats = _qa_reviewer_stats(all_ids)
 
+    # Per-analyst preliminary review performance stats (returned / not_accepted with timing)
+    prelim_analyst_stats = _qa_preliminary_analyst_stats(assignments)
+    prelim_analyst_list = sorted(prelim_analyst_stats.values(), key=lambda x: x['name'].lower())
+    if search:
+        prelim_analyst_list = [a for a in prelim_analyst_list if search.lower() in a['name'].lower()]
+
     return render_template(
         'qa_performance.html',
         analyst_list=analyst_list,
@@ -2763,6 +2889,7 @@ def qa_performance_summary():
         totals=totals,
         count_by=count_by,
         reviewer_stats=reviewer_stats,
+        prelim_analyst_list=prelim_analyst_list,
     )
 
 
@@ -2844,6 +2971,10 @@ def qa_performance_download():
     # Preliminary reviewer statistics
     reviewer_stats = _qa_reviewer_stats(all_ids)
 
+    # Per-analyst preliminary review performance stats
+    prelim_analyst_stats = _qa_preliminary_analyst_stats(assignments)
+    prelim_rows = sorted(prelim_analyst_stats.values(), key=lambda x: x['name'].lower())
+
     count_label = 'samples' if count_by == 'sample' else 'tests'
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -2873,17 +3004,43 @@ def qa_performance_download():
         '',
     ])
 
+    # Preliminary Review Performance (per-analyst timing stats)
+    if prelim_rows:
+        writer.writerow([])
+        writer.writerow(['Preliminary Review Performance — Per Analyst'])
+        writer.writerow([
+            'Analyst', 'Lab Type', 'Qty Samples',
+            'Returned', 'Not Accepted',
+            'Avg Time to Return (hrs)', 'Avg Time to Not Accept (hrs)',
+            'Total Time Returned (hrs)', 'Total Time Not Accepted (hrs)',
+        ])
+        for pr in prelim_rows:
+            writer.writerow([
+                pr['name'], pr['lab_type'], pr['qty_samples'],
+                pr['returned_count'], pr['not_accepted_count'],
+                pr['avg_time_returned_hrs'], pr['avg_time_not_accepted_hrs'],
+                pr['total_time_returned_hrs'], pr['total_time_not_accepted_hrs'],
+            ])
+        writer.writerow([
+            'TOTAL', '', sum(r['qty_samples'] for r in prelim_rows),
+            sum(r['returned_count'] for r in prelim_rows),
+            sum(r['not_accepted_count'] for r in prelim_rows),
+            '', '',
+            round(sum(r['total_time_returned_hrs'] for r in prelim_rows), 2),
+            round(sum(r['total_time_not_accepted_hrs'] for r in prelim_rows), 2),
+        ])
+
     # Preliminary Reviewer Stats section
     if reviewer_stats:
         writer.writerow([])
         writer.writerow(['Preliminary Review Activity'])
         writer.writerow([
-            'Reviewer', 'Total Reviews', 'Approved', 'Returned', 'Return Rate (%)',
+            'Reviewer', 'Total Reviews', 'Approved', 'Returned', 'Not Accepted', 'Non-Approval Rate (%)',
         ])
         for rv in reviewer_stats:
             writer.writerow([
                 rv['name'], rv['total'], rv['approved'],
-                rv['returned'], rv['return_rate'],
+                rv['returned'], rv['not_accepted'], rv['return_rate'],
             ])
 
     fname_q = f'_Q{quarter}' if quarter in (1, 2, 3, 4) else ''

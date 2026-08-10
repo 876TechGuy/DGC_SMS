@@ -961,6 +961,7 @@ class PreliminaryReviewForm(FlaskForm):
             ('', '-- Select Action --'),
             ('approved', 'Approve – Forward to Senior Chemist'),
             ('returned', 'Return for Correction'),
+            ('not_accepted', 'Not Accepted – Reject Report'),
         ],
         validators=[DataRequired()],
     )

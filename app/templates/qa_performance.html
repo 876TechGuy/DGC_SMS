@@ -273,6 +273,125 @@
     </div>
 </div>
 
+<!-- ── Preliminary Review Performance (per-analyst) ──────────── -->
+{% if prelim_analyst_list %}
+<div class="card shadow-sm mt-4">
+    <div class="card-header fw-semibold">
+        <i class="bi bi-clipboard2-data me-1"></i>Preliminary Review Performance
+        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle mb-0" id="prelim-perf-table">
+            <thead class="table-dark">
+                <tr>
+                    <th class="ps-3" style="min-width:170px;">Analyst</th>
+                    <th class="text-center text-nowrap">Lab Type</th>
+                    <th class="text-center text-nowrap" title="Total unique samples reviewed by the analyst">
+                        Qty<br>Samples
+                    </th>
+                    <th class="text-center text-nowrap" title="Samples with at least one preliminary review returned">
+                        <i class="bi bi-arrow-counterclockwise me-1 text-warning"></i>
+                        Returned
+                    </th>
+                    <th class="text-center text-nowrap" title="Samples with at least one preliminary review not accepted">
+                        <i class="bi bi-x-circle me-1 text-danger"></i>
+                        Not Accepted
+                    </th>
+                    <th class="text-center text-nowrap" title="Average hours from report submission to preliminary return">
+                        Avg Time<br>to Return (hrs)
+                    </th>
+                    <th class="text-center text-nowrap" title="Average hours from report submission to not-accepted decision">
+                        Avg Time to<br>Not Accept (hrs)
+                    </th>
+                    <th class="text-center text-nowrap" title="Sum of all return review durations">
+                        Total Time<br>Returned (hrs)
+                    </th>
+                    <th class="text-center text-nowrap" title="Sum of all not-accepted review durations">
+                        Total Time<br>Not Accepted (hrs)
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in prelim_analyst_list %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ a.name }}</td>
+                    <td class="text-center">
+                        {% if a.lab_type == 'food' %}
+                        <span class="badge bg-info text-dark">Food</span>
+                        {% elif a.lab_type == 'tox' %}
+                        <span class="badge bg-warning text-dark">Tox</span>
+                        {% elif a.lab_type == 'pharm' %}
+                        <span class="badge text-white" style="background:#6f42c1;">Pharm</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge rounded-pill bg-secondary fs-6 px-3">{{ a.qty_samples }}</span>
+                    </td>
+                    <td class="text-center">
+                        {% if a.returned_count > 0 %}
+                        <span class="badge rounded-pill bg-warning text-dark fs-6 px-3">{{ a.returned_count }}</span>
+                        {% else %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.not_accepted_count > 0 %}
+                        <span class="badge rounded-pill bg-danger fs-6 px-3">{{ a.not_accepted_count }}</span>
+                        {% else %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.avg_time_returned_hrs > 0 %}
+                        <span class="fw-semibold text-warning">{{ a.avg_time_returned_hrs }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.avg_time_not_accepted_hrs > 0 %}
+                        <span class="fw-semibold text-danger">{{ a.avg_time_not_accepted_hrs }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.total_time_returned_hrs > 0 %}
+                        <span class="text-warning fw-semibold">{{ a.total_time_returned_hrs }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.total_time_not_accepted_hrs > 0 %}
+                        <span class="text-danger fw-semibold">{{ a.total_time_not_accepted_hrs }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="ps-3">TOTALS</td>
+                    <td></td>
+                    <td class="text-center">{{ prelim_analyst_list | sum(attribute='qty_samples') }}</td>
+                    <td class="text-center">{{ prelim_analyst_list | sum(attribute='returned_count') }}</td>
+                    <td class="text-center">{{ prelim_analyst_list | sum(attribute='not_accepted_count') }}</td>
+                    <td></td>
+                    <td></td>
+                    <td class="text-center">{{ prelim_analyst_list | sum(attribute='total_time_returned_hrs') | round(2) }}</td>
+                    <td class="text-center">{{ prelim_analyst_list | sum(attribute='total_time_not_accepted_hrs') | round(2) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- ── Preliminary Reviewer Stats ───────────────────────────── -->
 {% if reviewer_stats %}
 <div class="card shadow-sm mt-4">
@@ -287,8 +406,9 @@
                     <th class="ps-3" style="min-width:170px;">Reviewer</th>
                     <th class="text-center">Total Reviews</th>
                     <th class="text-center text-success">Approved</th>
-                    <th class="text-center text-danger">Returned</th>
-                    <th class="text-center">Return Rate</th>
+                    <th class="text-center text-warning">Returned</th>
+                    <th class="text-center text-danger">Not Accepted</th>
+                    <th class="text-center">Non-Approval Rate</th>
                 </tr>
             </thead>
             <tbody>
@@ -307,7 +427,14 @@
                     </td>
                     <td class="text-center">
                         {% if rv.returned > 0 %}
-                        <span class="badge rounded-pill bg-danger fs-6 px-3">{{ rv.returned }}</span>
+                        <span class="badge rounded-pill bg-warning text-dark fs-6 px-3">{{ rv.returned }}</span>
+                        {% else %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if rv.not_accepted > 0 %}
+                        <span class="badge rounded-pill bg-danger fs-6 px-3">{{ rv.not_accepted }}</span>
                         {% else %}
                         <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
                         {% endif %}
@@ -333,6 +460,7 @@
                     <td class="text-center">{{ reviewer_stats | sum(attribute='total') }}</td>
                     <td class="text-center">{{ reviewer_stats | sum(attribute='approved') }}</td>
                     <td class="text-center">{{ reviewer_stats | sum(attribute='returned') }}</td>
+                    <td class="text-center">{{ reviewer_stats | sum(attribute='not_accepted') }}</td>
                     <td></td>
                 </tr>
             </tfoot>
