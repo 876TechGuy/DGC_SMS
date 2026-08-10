@@ -1271,6 +1271,55 @@ def upload_supporting_document(sample_id):
     )
 
 
+@samples_bp.route('/<int:sample_id>/delete-supporting-doc/<int:doc_id>',
+                  methods=['POST'])
+@login_required
+def delete_supporting_document(sample_id, doc_id):
+    """Delete a supporting document. Admin / SuperAdmin only."""
+    sample = db.get_or_404(Sample, sample_id)
+    doc = db.get_or_404(SupportingDocument, doc_id)
+
+    if doc.sample_id != sample.id:
+        abort(404)
+
+    # Backend authorisation: Admin / SuperAdmin or explicit permission only.
+    if not (
+        current_user.has_any_role(Role.ADMIN, Role.SUPER_ADMIN)
+        or current_user.has_permission(Permission.DELETE_SUPPORTING_DOCUMENT)
+    ):
+        flash('You do not have permission to delete supporting documents.', 'danger')
+        return redirect(url_for('samples.detail', sample_id=sample.id))
+
+    original_name = doc.original_name
+    db.session.delete(doc)
+    _add_history(sample, 'Supporting Document Deleted',
+                 f'{current_user.full_name} deleted "{original_name}"',
+                 action_type='Document Delete',
+                 object_affected='Supporting Document',
+                 change_description=f'File: {original_name} (deleted by {current_user.full_name})')
+    db.session.add(AuditLog(
+        action='DOCUMENT_DELETED',
+        entity_type='Sample',
+        entity_id=sample.id,
+        entity_label=sample.lab_number,
+        details=json.dumps({
+            'lab_number': sample.lab_number,
+            'file_name': original_name,
+            'deleted_by': current_user.full_name,
+        }),
+        performed_by=current_user.id,
+        human_description=(
+            f'{current_user.full_name} deleted supporting document '
+            f'"{original_name}" from Sample #{sample.lab_number}.'
+        ),
+        ip_address=request.remote_addr,
+        success=True,
+    ))
+    db.session.commit()
+    flash(f'Supporting document "{original_name}" deleted.', 'success')
+    return redirect(url_for('samples.detail', sample_id=sample.id))
+
+
 # ---------------------------------------------------------------------------
 # Sample images upload / delete (previewed on the detail page)
 # ---------------------------------------------------------------------------
