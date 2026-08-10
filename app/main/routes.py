@@ -2527,6 +2527,58 @@ def _can_view_qa_performance():
     )
 
 
+def _qa_reviewer_stats(assignment_ids):
+    """Return a list of per-reviewer dicts for preliminary reviews.
+
+    Queries ReviewHistory for all preliminary-type reviews on the given
+    assignment IDs and aggregates totals per reviewer.  Returns a list of
+    dicts (sorted by reviewer name) with keys:
+        name, total, approved, returned, return_rate
+    """
+    if not assignment_ids:
+        return []
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action.in_(['approved', 'returned']),
+        )
+        .with_entities(
+            ReviewHistory.reviewer_id,
+            ReviewHistory.action,
+        )
+        .all()
+    )
+
+    # Collect reviewer ids then bulk-load names
+    reviewer_ids = {r.reviewer_id for r in rows}
+    from app.models import User as _User
+    users = {u.id: u.full_name for u in _User.query.filter(_User.id.in_(reviewer_ids)).all()}
+
+    data = {}
+    for row in rows:
+        rid = row.reviewer_id
+        if rid not in data:
+            data[rid] = {
+                'name': users.get(rid, 'Unknown'),
+                'total': 0,
+                'approved': 0,
+                'returned': 0,
+            }
+        data[rid]['total'] += 1
+        if row.action == 'approved':
+            data[rid]['approved'] += 1
+        else:
+            data[rid]['returned'] += 1
+
+    result = sorted(data.values(), key=lambda x: x['name'].lower())
+    for entry in result:
+        t = entry['total']
+        entry['return_rate'] = round(entry['returned'] / t * 100, 1) if t else 0.0
+    return result
+
+
 def _qa_return_reason_summary(analyst_id, assignment_ids):
     """Return a concise text summary of return reasons for an analyst.
 
@@ -2698,6 +2750,9 @@ def qa_performance_summary():
         'returned': sum(a['returned'] for a in analyst_list),
     }
 
+    # Preliminary reviewer statistics
+    reviewer_stats = _qa_reviewer_stats(all_ids)
+
     return render_template(
         'qa_performance.html',
         analyst_list=analyst_list,
@@ -2707,6 +2762,7 @@ def qa_performance_summary():
         available_years=available_years,
         totals=totals,
         count_by=count_by,
+        reviewer_stats=reviewer_stats,
     )
 
 
@@ -2785,6 +2841,9 @@ def qa_performance_download():
 
     rows = sorted(analyst_data.values(), key=lambda x: x['name'].lower())
 
+    # Preliminary reviewer statistics
+    reviewer_stats = _qa_reviewer_stats(all_ids)
+
     count_label = 'samples' if count_by == 'sample' else 'tests'
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -2813,6 +2872,19 @@ def qa_performance_download():
         sum(r['returned'] for r in rows),
         '',
     ])
+
+    # Preliminary Reviewer Stats section
+    if reviewer_stats:
+        writer.writerow([])
+        writer.writerow(['Preliminary Review Activity'])
+        writer.writerow([
+            'Reviewer', 'Total Reviews', 'Approved', 'Returned', 'Return Rate (%)',
+        ])
+        for rv in reviewer_stats:
+            writer.writerow([
+                rv['name'], rv['total'], rv['approved'],
+                rv['returned'], rv['return_rate'],
+            ])
 
     fname_q = f'_Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     filename = f'QA_Performance_Summary_{year}{fname_q}.csv'
