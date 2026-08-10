@@ -2494,6 +2494,276 @@ def analyst_report_download():
 
 
 # ---------------------------------------------------------------------------
+# QA Performance Summary Report
+# ---------------------------------------------------------------------------
+
+# Branch categories used by the QA Performance Summary report
+_QA_FOOD_BRANCHES   = {Branch.FOOD_MILK, Branch.FOOD_ALCOHOL}
+_QA_TOX_BRANCHES    = {Branch.TOXICOLOGY}
+_QA_PHARM_BRANCHES  = {Branch.PHARMACEUTICAL, Branch.PHARMACEUTICAL_NR}
+
+
+def _qa_branch_category(branch):
+    """Map a Branch enum value to one of 'food', 'tox', 'pharm', or None."""
+    if branch in _QA_FOOD_BRANCHES:
+        return 'food'
+    if branch in _QA_TOX_BRANCHES:
+        return 'tox'
+    if branch in _QA_PHARM_BRANCHES:
+        return 'pharm'
+    return None
+
+
+def _can_view_qa_performance():
+    """Return True if the current user may view the QA Performance Summary."""
+    return (
+        current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD,
+                                  Role.DEPUTY, Role.ADMIN)
+        or current_user.has_permission(Permission.VIEW_ANALYST_PERFORMANCE_REPORT)
+    )
+
+
+def _qa_return_reason_summary(analyst_id, assignment_ids):
+    """Return a concise text summary of return reasons for an analyst.
+
+    Reads ReviewHistory rows for the given assignment IDs where the action is
+    'returned'.  Groups comment keywords into standard QA categories and
+    returns a comma-separated summary string.  If no comments are found,
+    returns an empty string.
+    """
+    if not assignment_ids:
+        return ''
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.action == 'returned',
+        )
+        .with_entities(ReviewHistory.comments, ReviewHistory.checklist_data)
+        .all()
+    )
+
+    # Collect all comment text (both free-text comments and checklist JSON)
+    import json as _json
+    raw_texts = []
+    for comments, checklist_data in rows:
+        if comments:
+            raw_texts.append(comments.lower())
+        if checklist_data:
+            try:
+                obj = _json.loads(checklist_data)
+                # Checklist is typically {label: bool/str}; collect failed item labels
+                if isinstance(obj, dict):
+                    for label, val in obj.items():
+                        if val is False or val == 'no' or val == 'fail' or val == 'failed':
+                            raw_texts.append(label.lower())
+                        elif isinstance(val, str) and val.strip():
+                            raw_texts.append(val.lower())
+            except (ValueError, TypeError):
+                pass
+
+    if not raw_texts:
+        return ''
+
+    combined = ' '.join(raw_texts)
+
+    # Keyword → category mapping (order matters: first match wins per keyword)
+    keyword_categories = [
+        (['calculat', 'arithmetic', 'math', 'formula'], 'Missing/incorrect calculations'),
+        (['unit', 'measurement', 'mg', 'g/l', 'ppm', 'ppb', '%'], 'Incorrect units'),
+        (['method', 'procedure', 'protocol', 'technique', 'analyt'], 'Incomplete methodology'),
+        (['typo', 'spelling', 'grammatical', 'typograph', 'error in text'], 'Typographical errors'),
+        (['attach', 'document', 'missing file', 'appendix', 'enclos'], 'Missing attachments'),
+        (['transcri', 'data entry', 'recorded', 'copy', 'transfer'], 'Data transcription errors'),
+        (['signature', 'sign off', 'initiall', 'unsigned'], 'Missing signature/sign-off'),
+        (['incomplete', 'missing', 'omit', 'not filled', 'blank'], 'Incomplete fields'),
+        (['reference', 'standard', 'spec', 'limit', 'criteria'], 'Incorrect reference/specification'),
+    ]
+
+    found = []
+    for keywords, label in keyword_categories:
+        if any(kw in combined for kw in keywords):
+            found.append(label)
+
+    return '; '.join(found) if found else 'See review comments'
+
+
+@main_bp.route('/reports/qa-performance')
+@login_required
+def qa_performance_summary():
+    """QA Performance Summary: per-analyst breakdown by lab category, acceptance, and return reasons."""
+    if not _can_view_qa_performance():
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+
+    year = request.args.get('year', type=int, default=_current_fiscal_year())
+    quarter = request.args.get('quarter', type=int, default=0)  # 0 = full year
+    search = request.args.get('search', '').strip()
+
+    # Base query: all assignments within the fiscal period
+    q = (
+        SampleAssignment.query
+        .join(Sample, SampleAssignment.sample_id == Sample.id)
+    )
+    q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
+                            quarter if quarter in (1, 2, 3, 4) else None)
+
+    assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+
+    # Fetch per-assignment preliminary resubmission counts in one query
+    all_ids = [a.id for a in assignments]
+    prelim_counts = _resubmission_counts_for_assignments(all_ids, review_types=['preliminary'])
+
+    # Build per-analyst data
+    analyst_data = {}
+    for a in assignments:
+        cid = a.chemist_id
+        if cid not in analyst_data:
+            analyst_data[cid] = {
+                'id': cid,
+                'name': a.chemist.full_name if a.chemist else 'Unknown',
+                'food': 0,
+                'tox': 0,
+                'pharm': 0,
+                'accepted_first': 0,
+                'returned': 0,
+                'assignment_ids': [],
+            }
+        entry = analyst_data[cid]
+        entry['assignment_ids'].append(a.id)
+
+        # Category count (only completed/accepted assignments count toward discipline)
+        cat = _qa_branch_category(a.sample.sample_type)
+        if cat:
+            entry[cat] += 1
+
+        # First-submission acceptance vs returned
+        n_prelim = prelim_counts.get(a.id, 0)
+        if n_prelim == 0:
+            entry['accepted_first'] += 1
+        else:
+            entry['returned'] += 1
+
+    # Compute return reason summary per analyst
+    for entry in analyst_data.values():
+        entry['return_reasons'] = _qa_return_reason_summary(
+            entry['id'], entry['assignment_ids']
+        )
+
+    # Sort by analyst name
+    analyst_list = sorted(analyst_data.values(), key=lambda x: x['name'].lower())
+
+    # Optional name search
+    if search:
+        analyst_list = [a for a in analyst_list if search.lower() in a['name'].lower()]
+
+    available_years = _available_fiscal_years()
+
+    # Grand totals row
+    totals = {
+        'food': sum(a['food'] for a in analyst_list),
+        'tox': sum(a['tox'] for a in analyst_list),
+        'pharm': sum(a['pharm'] for a in analyst_list),
+        'accepted_first': sum(a['accepted_first'] for a in analyst_list),
+        'returned': sum(a['returned'] for a in analyst_list),
+    }
+
+    return render_template(
+        'qa_performance.html',
+        analyst_list=analyst_list,
+        year=year,
+        quarter=quarter,
+        search=search,
+        available_years=available_years,
+        totals=totals,
+    )
+
+
+@main_bp.route('/reports/qa-performance/download')
+@login_required
+def qa_performance_download():
+    """Download the QA Performance Summary as a CSV file."""
+    if not _can_view_qa_performance():
+        flash('Access denied.', 'danger')
+        return redirect(url_for('main.dashboard'))
+
+    year = request.args.get('year', type=int, default=_current_fiscal_year())
+    quarter = request.args.get('quarter', type=int, default=0)
+
+    q = (
+        SampleAssignment.query
+        .join(Sample, SampleAssignment.sample_id == Sample.id)
+    )
+    q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
+                            quarter if quarter in (1, 2, 3, 4) else None)
+    assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+
+    all_ids = [a.id for a in assignments]
+    prelim_counts = _resubmission_counts_for_assignments(all_ids, review_types=['preliminary'])
+
+    analyst_data = {}
+    for a in assignments:
+        cid = a.chemist_id
+        if cid not in analyst_data:
+            analyst_data[cid] = {
+                'name': a.chemist.full_name if a.chemist else 'Unknown',
+                'food': 0, 'tox': 0, 'pharm': 0,
+                'accepted_first': 0, 'returned': 0,
+                'assignment_ids': [],
+            }
+        entry = analyst_data[cid]
+        entry['assignment_ids'].append(a.id)
+        cat = _qa_branch_category(a.sample.sample_type)
+        if cat:
+            entry[cat] += 1
+        n_prelim = prelim_counts.get(a.id, 0)
+        if n_prelim == 0:
+            entry['accepted_first'] += 1
+        else:
+            entry['returned'] += 1
+
+    for entry in analyst_data.values():
+        entry['return_reasons'] = _qa_return_reason_summary(None, entry['assignment_ids'])
+
+    rows = sorted(analyst_data.values(), key=lambda x: x['name'].lower())
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    fy_label = f'FY {year}/{year + 1}'
+    q_label = f' Q{quarter}' if quarter in (1, 2, 3, 4) else ''
+    writer.writerow([f'QA Performance Summary — {fy_label}{q_label}'])
+    writer.writerow([])
+    writer.writerow([
+        'Analyst', 'Food', 'Tox', 'Pharm',
+        'Accepted on First Submission', 'Returned for Correction',
+        'Comments / Summary of Reasons for Returned Report',
+    ])
+    for row in rows:
+        writer.writerow([
+            row['name'], row['food'], row['tox'], row['pharm'],
+            row['accepted_first'], row['returned'], row['return_reasons'],
+        ])
+    # Totals row
+    writer.writerow([
+        'TOTAL',
+        sum(r['food'] for r in rows),
+        sum(r['tox'] for r in rows),
+        sum(r['pharm'] for r in rows),
+        sum(r['accepted_first'] for r in rows),
+        sum(r['returned'] for r in rows),
+        '',
+    ])
+
+    fname_q = f'_Q{quarter}' if quarter in (1, 2, 3, 4) else ''
+    filename = f'QA_Performance_Summary_{year}{fname_q}.csv'
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Non-Working Days Calendar Management
 # ---------------------------------------------------------------------------
 

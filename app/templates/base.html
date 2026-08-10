@@ -582,6 +582,12 @@
                         <i class="bi bi-person-lines-fill"></i> Analyst Report
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'main.qa_performance_summary' %}active{% endif %}"
+                       href="{{ url_for('main.qa_performance_summary') }}">
+                        <i class="bi bi-shield-check"></i> QA Performance
+                    </a>
+                </li>
                 {% endif %}
                 {# Explicit KPI_VIEW permission overrides role restrictions #}
                 {% if current_user.has_permission(Permission.KPI_VIEW) or current_user.has_any_role(Role.SENIOR_CHEMIST, Role.HOD, Role.DEPUTY, Role.ADMIN) %}
