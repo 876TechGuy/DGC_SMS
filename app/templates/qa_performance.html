@@ -272,4 +272,72 @@
         </ul>
     </div>
 </div>
+
+<!-- ── Preliminary Reviewer Stats ───────────────────────────── -->
+{% if reviewer_stats %}
+<div class="card shadow-sm mt-4">
+    <div class="card-header fw-semibold">
+        <i class="bi bi-person-check me-1"></i>Preliminary Review Activity
+        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle mb-0">
+            <thead class="table-secondary">
+                <tr>
+                    <th class="ps-3" style="min-width:170px;">Reviewer</th>
+                    <th class="text-center">Total Reviews</th>
+                    <th class="text-center text-success">Approved</th>
+                    <th class="text-center text-danger">Returned</th>
+                    <th class="text-center">Return Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rv in reviewer_stats %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ rv.name }}</td>
+                    <td class="text-center">
+                        <span class="badge rounded-pill bg-secondary fs-6 px-3">{{ rv.total }}</span>
+                    </td>
+                    <td class="text-center">
+                        {% if rv.approved > 0 %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">{{ rv.approved }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if rv.returned > 0 %}
+                        <span class="badge rounded-pill bg-danger fs-6 px-3">{{ rv.returned }}</span>
+                        {% else %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if rv.return_rate > 0 %}
+                        <div>
+                            <div class="progress" style="height:6px; width:70px; margin:0 auto;">
+                                <div class="progress-bar bg-danger" style="width:{{ [rv.return_rate, 100] | min }}%;"></div>
+                            </div>
+                            <div style="font-size:0.68rem;" class="text-muted mt-1">{{ rv.return_rate }}%</div>
+                        </div>
+                        {% else %}
+                        <span class="text-success small">0%</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="ps-3">TOTALS</td>
+                    <td class="text-center">{{ reviewer_stats | sum(attribute='total') }}</td>
+                    <td class="text-center">{{ reviewer_stats | sum(attribute='approved') }}</td>
+                    <td class="text-center">{{ reviewer_stats | sum(attribute='returned') }}</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
