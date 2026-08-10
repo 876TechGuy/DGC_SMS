@@ -63,6 +63,10 @@ WORKFLOW_STATUSES = [
 # Default setting key stored in the Setting table.
 ANALYST_REPORT_RESUB_TYPES_KEY = 'analyst_report_default_resubmission_types'
 
+# QA Performance Summary — calculation method setting key.
+# Valid values: 'sample' (count by unique sample) or 'test' (count by test assignment).
+QA_PERFORMANCE_COUNT_BY_KEY = 'qa_performance_count_by'
+
 
 def _get_default_resubmission_types():
     """Return the default resubmission type filter list from settings.
@@ -2600,6 +2604,8 @@ def qa_performance_summary():
     quarter = request.args.get('quarter', type=int, default=0)  # 0 = full year
     search = request.args.get('search', '').strip()
 
+    count_by = Setting.get(QA_PERFORMANCE_COUNT_BY_KEY, 'sample')
+
     # Base query: all assignments within the fiscal period
     q = (
         SampleAssignment.query
@@ -2628,21 +2634,45 @@ def qa_performance_summary():
                 'accepted_first': 0,
                 'returned': 0,
                 'assignment_ids': [],
+                '_sample_map': {},  # used only when count_by == 'sample'
             }
         entry = analyst_data[cid]
         entry['assignment_ids'].append(a.id)
 
-        # Category count (only completed/accepted assignments count toward discipline)
-        cat = _qa_branch_category(a.sample.sample_type)
-        if cat:
-            entry[cat] += 1
-
-        # First-submission acceptance vs returned
-        n_prelim = prelim_counts.get(a.id, 0)
-        if n_prelim == 0:
-            entry['accepted_first'] += 1
+        if count_by == 'sample':
+            # Accumulate per-sample data; stats computed after the loop
+            sid = a.sample_id
+            if sid not in entry['_sample_map']:
+                entry['_sample_map'][sid] = {'sample': a.sample, 'assignment_ids': []}
+            entry['_sample_map'][sid]['assignment_ids'].append(a.id)
         else:
-            entry['returned'] += 1
+            # Test-based counting (original behaviour)
+            cat = _qa_branch_category(a.sample.sample_type)
+            if cat:
+                entry[cat] += 1
+            n_prelim = prelim_counts.get(a.id, 0)
+            if n_prelim == 0:
+                entry['accepted_first'] += 1
+            else:
+                entry['returned'] += 1
+
+    # For sample-based counting, roll up the per-sample stats into analyst totals
+    if count_by == 'sample':
+        for entry in analyst_data.values():
+            for sdata in entry['_sample_map'].values():
+                cat = _qa_branch_category(sdata['sample'].sample_type)
+                if cat:
+                    entry[cat] += 1
+                any_returned = any(prelim_counts.get(aid, 0) > 0
+                                   for aid in sdata['assignment_ids'])
+                if any_returned:
+                    entry['returned'] += 1
+                else:
+                    entry['accepted_first'] += 1
+            del entry['_sample_map']
+    else:
+        for entry in analyst_data.values():
+            del entry['_sample_map']
 
     # Compute return reason summary per analyst
     for entry in analyst_data.values():
@@ -2676,6 +2706,7 @@ def qa_performance_summary():
         search=search,
         available_years=available_years,
         totals=totals,
+        count_by=count_by,
     )
 
 
@@ -2689,6 +2720,8 @@ def qa_performance_download():
 
     year = request.args.get('year', type=int, default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)
+
+    count_by = Setting.get(QA_PERFORMANCE_COUNT_BY_KEY, 'sample')
 
     q = (
         SampleAssignment.query
@@ -2710,28 +2743,55 @@ def qa_performance_download():
                 'food': 0, 'tox': 0, 'pharm': 0,
                 'accepted_first': 0, 'returned': 0,
                 'assignment_ids': [],
+                '_sample_map': {},
             }
         entry = analyst_data[cid]
         entry['assignment_ids'].append(a.id)
-        cat = _qa_branch_category(a.sample.sample_type)
-        if cat:
-            entry[cat] += 1
-        n_prelim = prelim_counts.get(a.id, 0)
-        if n_prelim == 0:
-            entry['accepted_first'] += 1
+
+        if count_by == 'sample':
+            sid = a.sample_id
+            if sid not in entry['_sample_map']:
+                entry['_sample_map'][sid] = {'sample': a.sample, 'assignment_ids': []}
+            entry['_sample_map'][sid]['assignment_ids'].append(a.id)
         else:
-            entry['returned'] += 1
+            cat = _qa_branch_category(a.sample.sample_type)
+            if cat:
+                entry[cat] += 1
+            n_prelim = prelim_counts.get(a.id, 0)
+            if n_prelim == 0:
+                entry['accepted_first'] += 1
+            else:
+                entry['returned'] += 1
+
+    if count_by == 'sample':
+        for entry in analyst_data.values():
+            for sdata in entry['_sample_map'].values():
+                cat = _qa_branch_category(sdata['sample'].sample_type)
+                if cat:
+                    entry[cat] += 1
+                any_returned = any(prelim_counts.get(aid, 0) > 0
+                                   for aid in sdata['assignment_ids'])
+                if any_returned:
+                    entry['returned'] += 1
+                else:
+                    entry['accepted_first'] += 1
+            del entry['_sample_map']
+    else:
+        for entry in analyst_data.values():
+            del entry['_sample_map']
 
     for entry in analyst_data.values():
         entry['return_reasons'] = _qa_return_reason_summary(None, entry['assignment_ids'])
 
     rows = sorted(analyst_data.values(), key=lambda x: x['name'].lower())
 
+    count_label = 'samples' if count_by == 'sample' else 'tests'
     buf = io.StringIO()
     writer = csv.writer(buf)
     fy_label = f'FY {year}/{year + 1}'
     q_label = f' Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     writer.writerow([f'QA Performance Summary — {fy_label}{q_label}'])
+    writer.writerow([f'Counts based on: {count_label}'])
     writer.writerow([])
     writer.writerow([
         'Analyst', 'Food', 'Tox', 'Pharm',
@@ -2854,6 +2914,12 @@ def settings():
             chosen = [t for t in raw_default_resub if t in valid_type_keys]
             Setting.set(ANALYST_REPORT_RESUB_TYPES_KEY, ','.join(chosen) if chosen else 'all')
 
+        # QA Performance Summary — calculation method
+        count_by = request.form.get('qa_performance_count_by', 'sample')
+        if count_by not in ('sample', 'test'):
+            count_by = 'sample'
+        Setting.set(QA_PERFORMANCE_COUNT_BY_KEY, count_by)
+
         # Email notifications and SMTP: admin/HOD only
         if is_admin_or_hod:
             email_enabled = 'email_enabled' in request.form
@@ -2895,6 +2961,7 @@ def settings():
     preliminary_review_grouped = Setting.get_bool('preliminary_review_grouped', default=False)
     technical_review_grouped = Setting.get_bool('technical_review_grouped', default=False)
     sample_count = Sample.query.count()
+    qa_performance_count_by = Setting.get(QA_PERFORMANCE_COUNT_BY_KEY, 'sample')
 
     # Default resubmission types for the settings UI
     default_resub_raw = Setting.get(ANALYST_REPORT_RESUB_TYPES_KEY, 'all')
@@ -2922,7 +2989,8 @@ def settings():
                            smtp_settings=smtp_settings,
                            is_admin_or_hod=is_admin_or_hod,
                            resubmission_types=RESUBMISSION_TYPES,
-                           default_resub_selected=default_resub_selected)
+                           default_resub_selected=default_resub_selected,
+                           qa_performance_count_by=qa_performance_count_by)
 
 
 @main_bp.route('/settings/test-email', methods=['POST'])

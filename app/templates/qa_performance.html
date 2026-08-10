@@ -67,7 +67,7 @@
         <div class="card text-center shadow-sm h-100">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-info">{{ totals.food }}</div>
-                <small class="text-muted">Food Tests</small>
+                <small class="text-muted">Food {{ 'Samples' if count_by == 'sample' else 'Tests' }}</small>
             </div>
         </div>
     </div>
@@ -75,7 +75,7 @@
         <div class="card text-center shadow-sm h-100">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-warning">{{ totals.tox }}</div>
-                <small class="text-muted">Tox Tests</small>
+                <small class="text-muted">Tox {{ 'Samples' if count_by == 'sample' else 'Tests' }}</small>
             </div>
         </div>
     </div>
@@ -83,7 +83,7 @@
         <div class="card text-center shadow-sm h-100">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold" style="color:#6f42c1;">{{ totals.pharm }}</div>
-                <small class="text-muted">Pharm Tests</small>
+                <small class="text-muted">Pharm {{ 'Samples' if count_by == 'sample' else 'Tests' }}</small>
             </div>
         </div>
     </div>
@@ -124,13 +124,13 @@
             <thead class="table-dark">
                 <tr>
                     <th class="ps-3" style="min-width:170px;">Analyst</th>
-                    <th class="text-center" title="Food (Milk) + Food (Alcohol) reports">
+                    <th class="text-center" title="Food (Milk) + Food (Alcohol)">
                         <i class="bi bi-cup-straw me-1 text-info"></i>Food
                     </th>
-                    <th class="text-center" title="Toxicology reports">
+                    <th class="text-center" title="Toxicology">
                         <i class="bi bi-droplet me-1 text-warning"></i>Tox
                     </th>
-                    <th class="text-center" title="Pharmaceutical + Not-Registered Pharm reports">
+                    <th class="text-center" title="Pharmaceutical + Not-Registered Pharm">
                         <i class="bi bi-capsule me-1" style="color:#6f42c1;"></i>Pharm
                     </th>
                     <th class="text-center text-nowrap">
@@ -156,7 +156,7 @@
                     <td class="ps-3 fw-semibold">
                         {{ analyst.name }}
                         <div class="text-muted fw-normal" style="font-size:0.72rem;">
-                            {{ total_tests }} total assignment{{ 's' if total_tests != 1 else '' }}
+                            {{ total_tests }} {{ 'sample' if count_by == 'sample' else 'assignment' }}{{ 's' if total_tests != 1 else '' }}
                         </div>
                     </td>
 
@@ -258,9 +258,17 @@
             <li><strong>Food</strong> — includes Food (Milk) and Food (Alcohol) disciplines.</li>
             <li><strong>Tox</strong> — Toxicology laboratory.</li>
             <li><strong>Pharm</strong> — Pharmaceutical and Not-Registered Pharmaceutical.</li>
-            <li><strong>Accepted on First Submission</strong> — no preliminary review returns recorded for the assignment.</li>
+            {% if count_by == 'sample' %}
+            <li><strong>Counting method: by sample</strong> — each unique sample is counted once, regardless of how many test assignments it has.
+                A sample is "Returned" if any of its tests received a preliminary return; "Accepted on First Submission" if none did.</li>
+            {% else %}
+            <li><strong>Counting method: by test assignment</strong> — each individual test assignment is counted separately.</li>
+            {% endif %}
+            <li><strong>Accepted on First Submission</strong> — no preliminary review returns recorded.</li>
             <li><strong>Returned for Correction</strong> — at least one preliminary review return was recorded.</li>
             <li><strong>Return reasons</strong> are derived automatically from reviewer comments. Export the CSV for full details.</li>
+            <li class="mt-1">The counting method can be changed by an administrator in
+                <a href="{{ url_for('main.settings') }}">System Settings</a>.</li>
         </ul>
     </div>
 </div>

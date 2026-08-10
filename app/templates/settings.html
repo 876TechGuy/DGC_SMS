@@ -209,6 +209,45 @@
             </div>
         </div>
 
+        <!-- QA Performance Summary — Calculation Method card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>QA Performance Summary — Calculation Method</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Choose whether the QA Performance Summary counts each unique
+                    <strong>sample</strong> or each individual <strong>test assignment</strong>.
+                    A sample may have multiple test assignments; counting by sample avoids
+                    inflating totals when several tests are run on the same sample.
+                </p>
+                <div class="d-flex flex-wrap gap-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="qa_performance_count_by"
+                               id="qa_count_sample" value="sample"
+                               {% if qa_performance_count_by == 'sample' %}checked{% endif %}>
+                        <label class="form-check-label fw-semibold" for="qa_count_sample">
+                            By Sample <span class="badge bg-success ms-1">Recommended</span>
+                        </label>
+                        <div class="text-muted small mt-1">
+                            Each sample is counted once regardless of how many tests were assigned.
+                        </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="qa_performance_count_by"
+                               id="qa_count_test" value="test"
+                               {% if qa_performance_count_by == 'test' %}checked{% endif %}>
+                        <label class="form-check-label fw-semibold" for="qa_count_test">
+                            By Test Assignment
+                        </label>
+                        <div class="text-muted small mt-1">
+                            Each individual test assignment is counted separately.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="mb-4">
             <button type="submit" class="btn btn-primary">
                 <i class="bi bi-save me-1"></i>Save Settings
