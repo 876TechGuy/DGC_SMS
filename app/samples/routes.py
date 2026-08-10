@@ -1910,7 +1910,7 @@ def preliminary_review(assignment_id):
         )
 
         return_scope = form.return_scope.data or 'single'
-        if action == 'returned' and len(sibling_assignments) > 1:
+        if action in ('returned', 'not_accepted') and len(sibling_assignments) > 1:
             if return_scope == 'all':
                 target_assignments = sibling_assignments
             else:
@@ -1941,6 +1941,10 @@ def preliminary_review(assignment_id):
 
             if action == 'approved':
                 a.status = AssignmentStatus.UNDER_TECHNICAL_REVIEW
+            elif action == 'not_accepted':
+                a.status = AssignmentStatus.REJECTED
+                a.return_stage = 'preliminary'
+                a.date_completed = None
             else:  # returned
                 a.status = AssignmentStatus.RETURNED
                 a.return_stage = 'preliminary'
@@ -1961,6 +1965,18 @@ def preliminary_review(assignment_id):
                     f'Tests: {test_list} — approved by {current_user.full_name}, '
                     f'forwarded to Senior Chemist Review'),
             )
+        elif action == 'not_accepted':
+            _add_history(
+                sample, 'Preliminary Review Not Accepted',
+                (f'{current_user.full_name} rejected report for test(s): '
+                 f'{test_list} — not accepted. '
+                 f'Comments: {comments or "N/A"}'),
+                action_type='Preliminary Review',
+                object_affected='Report',
+                change_description=(
+                    f'Tests: {test_list} — not accepted (rejected) '
+                    f'by {current_user.full_name}. Comments: {comments or "N/A"}'),
+            )
         else:
             _add_history(
                 sample, 'Preliminary Review Returned',
@@ -1975,7 +1991,12 @@ def preliminary_review(assignment_id):
             )
 
         _update_sample_status(sample)
-        audit_action = 'PRELIMINARY_REVIEW_APPROVED' if action == 'approved' else 'PRELIMINARY_REVIEW_RETURNED'
+        if action == 'approved':
+            audit_action = 'PRELIMINARY_REVIEW_APPROVED'
+        elif action == 'not_accepted':
+            audit_action = 'PRELIMINARY_REVIEW_NOT_ACCEPTED'
+        else:
+            audit_action = 'PRELIMINARY_REVIEW_RETURNED'
         db.session.add(AuditLog(
             action=audit_action,
             entity_type='Sample',
@@ -1996,12 +2017,17 @@ def preliminary_review(assignment_id):
             notify_preliminary_review_completed(a, action)
         db.session.commit()
 
-        action_text = 'approved and forwarded' if action == 'approved' else 'returned for correction'
+        action_text = (
+            'approved and forwarded' if action == 'approved'
+            else 'not accepted (rejected)' if action == 'not_accepted'
+            else 'returned for correction'
+        )
+        flash_level = 'success' if action == 'approved' else 'danger' if action == 'not_accepted' else 'warning'
         test_count = len(reviewed_names)
         if test_count > 1:
-            flash(f'{test_count} reports have been {action_text}.', 'success')
+            flash(f'{test_count} reports have been {action_text}.', flash_level)
         else:
-            flash(f'Report has been {action_text}.', 'success')
+            flash(f'Report has been {action_text}.', flash_level)
         return redirect(url_for('samples.assignment_detail', assignment_id=assignment.id))
 
     return render_template(

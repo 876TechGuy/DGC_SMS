@@ -161,7 +161,7 @@
                             {% endfor %}
                             <div class="form-text text-danger d-none" id="noBlockWarning">
                                 <i class="bi bi-exclamation-triangle me-1"></i>
-                                Cannot approve: one or more items are marked "No". Only return for correction is allowed.
+                                Cannot approve: one or more items are marked "No". Only return for correction or not accepted is allowed.
                             </div>
                         </div>
 
@@ -258,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var returnScopeContainer = document.getElementById('returnScopeContainer');
     function toggleReturnScope() {
         if (!returnScopeContainer || !actionSelect) return;
-        if (actionSelect.value === 'returned') {
+        if (actionSelect.value === 'returned' || actionSelect.value === 'not_accepted') {
             returnScopeContainer.classList.remove('d-none');
         } else {
             returnScopeContainer.classList.add('d-none');
