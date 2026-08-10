@@ -2764,6 +2764,7 @@ def _qa_preliminary_analyst_stats(assignments):
     return result
 
 
+@main_bp.route('/reports/qa-performance')
 @login_required
 def qa_performance_summary():
     """QA Performance Summary: per-analyst breakdown by lab category, acceptance, and return reasons."""
