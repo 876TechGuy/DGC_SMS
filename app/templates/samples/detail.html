@@ -555,7 +555,7 @@
 
 <!-- Supporting Documents -->
 <div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card-header d-flex justify-content-between align-items-center py-3">
         <h5 class="mb-0"><i class="bi bi-paperclip me-2"></i>Supporting Documents</h5>
         {% if current_user.has_permission(Permission.ADD_SUPPORTING_DOCUMENT) or current_user.has_any_role(Role.OFFICER, Role.ADMIN, Role.HOD, Role.GOVT_CHEMIST_ASSISTANT) or current_user.id == sample.uploaded_by %}
         <a href="{{ url_for('samples.upload_supporting_document', sample_id=sample.id) }}" class="btn btn-sm btn-outline-primary">
@@ -568,22 +568,22 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
-                    <th>File</th>
+                    <th class="ps-3">File</th>
                     <th>Description</th>
                     <th>Uploaded By</th>
                     <th>Date</th>
-                    <th></th>
+                    <th class="pe-3"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for doc in supporting_docs %}
                 <tr>
-                    <td>{{ doc.original_name }}</td>
-                    <td>{{ doc.description or '—' }}</td>
-                    <td>{{ doc.uploader.full_name if doc.uploader else 'Unknown' }}</td>
-                    <td>{{ doc.uploaded_at.strftime('%d %b %Y %H:%M') if doc.uploaded_at else '' }}</td>
-                    <td>
-                        <div class="d-flex gap-1">
+                    <td class="ps-3 align-middle">{{ doc.original_name }}</td>
+                    <td class="align-middle">{{ doc.description or '—' }}</td>
+                    <td class="align-middle">{{ doc.uploader.full_name if doc.uploader else 'Unknown' }}</td>
+                    <td class="align-middle">{{ doc.uploaded_at.strftime('%d %b %Y %H:%M') if doc.uploaded_at else '' }}</td>
+                    <td class="pe-3 align-middle">
+                        <div class="d-flex gap-2 justify-content-end">
                             {% set doc_ext = doc.original_name.rsplit('.', 1)[-1].lower() if doc.original_name else '' %}
                             {% if doc_ext in ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'doc', 'docx', 'xls', 'xlsx'] %}
                             {% if doc_ext in ['doc', 'docx'] %}
@@ -602,6 +602,17 @@
                                class="btn btn-sm btn-outline-primary" title="Download">
                                 <i class="bi bi-download"></i>
                             </a>
+                            {% if current_user.has_any_role(Role.ADMIN, Role.SUPER_ADMIN) or current_user.has_permission(Permission.DELETE_SUPPORTING_DOCUMENT) %}
+                            <form method="POST"
+                                  action="{{ url_for('samples.delete_supporting_document', sample_id=sample.id, doc_id=doc.id) }}"
+                                  onsubmit="return confirm('Delete &quot;{{ doc.original_name }}&quot;? This cannot be undone.');"
+                                  class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
@@ -610,7 +621,7 @@
         </table>
     </div>
     {% else %}
-    <div class="card-body text-center text-muted py-3">
+    <div class="card-body text-center text-muted py-4">
         <i class="bi bi-file-earmark-x d-block mb-2" style="font-size:2rem;"></i>
         No supporting documents uploaded yet.
     </div>
