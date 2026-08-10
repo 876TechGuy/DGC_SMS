@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}QA Performance Summary - DGC SMS{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0"><i class="bi bi-shield-check me-2"></i>QA Performance Summary</h2>
+        <p class="text-muted small mb-0 mt-1">
+            Laboratory Quality Assurance — Analyst Report Summary
+            &nbsp;|&nbsp;
+            <strong>{{ year }}/{{ year + 1 }}</strong>
+            {% if quarter %}&nbsp;— Q{{ quarter }}{% endif %}
+        </p>
+    </div>
+    <a href="{{ url_for('main.qa_performance_download', year=year, quarter=quarter) }}"
+       class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+</div>
+
+<!-- ── Filters ─────────────────────────────────────────────── -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-2">
+        <form method="GET" id="qa-filter-form" class="row g-2 align-items-end">
+            <div class="col-sm-6 col-md-3">
+                <label class="form-label small fw-semibold mb-1">Financial Year</label>
+                <select name="year" class="form-select form-select-sm" onchange="this.form.submit()">
+                    {% for y in available_years %}
+                    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}/{{ y + 1 }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <label class="form-label small fw-semibold mb-1">Quarter</label>
+                <select name="quarter" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="0" {% if quarter == 0 %}selected{% endif %}>Full Year</option>
+                    <option value="1" {% if quarter == 1 %}selected{% endif %}>Q1 (Apr – Jun)</option>
+                    <option value="2" {% if quarter == 2 %}selected{% endif %}>Q2 (Jul – Sep)</option>
+                    <option value="3" {% if quarter == 3 %}selected{% endif %}>Q3 (Oct – Dec)</option>
+                    <option value="4" {% if quarter == 4 %}selected{% endif %}>Q4 (Jan – Mar)</option>
+                </select>
+            </div>
+            <div class="col-sm-6 col-md-4">
+                <label class="form-label small fw-semibold mb-1">Search Analyst</label>
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="Analyst name…" value="{{ search }}">
+            </div>
+            <div class="col-sm-6 col-md-2 d-flex align-items-end gap-1">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a href="{{ url_for('main.qa_performance_summary') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ── Summary KPI Cards ────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-primary">{{ analyst_list | length }}</div>
+                <small class="text-muted">Analysts</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-info">{{ totals.food }}</div>
+                <small class="text-muted">Food Tests</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-warning">{{ totals.tox }}</div>
+                <small class="text-muted">Tox Tests</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold" style="color:#6f42c1;">{{ totals.pharm }}</div>
+                <small class="text-muted">Pharm Tests</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center border-success shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-success">{{ totals.accepted_first }}</div>
+                <small class="text-muted">Accepted First</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md col-lg-2">
+        <div class="card text-center border-danger shadow-sm h-100">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-danger">{{ totals.returned }}</div>
+                <small class="text-muted">Returned</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Main Performance Table ───────────────────────────────── -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+            <i class="bi bi-table me-1"></i>
+            Analyst Performance Table
+            <span class="text-muted fw-normal ms-1 small">
+                — {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}
+                {% if search %} — filtered: "{{ search }}"{% endif %}
+            </span>
+        </span>
+        <small class="text-muted">{{ analyst_list | length }} analyst{{ 's' if analyst_list | length != 1 else '' }}</small>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle mb-0" id="qa-table">
+            <thead class="table-dark">
+                <tr>
+                    <th class="ps-3" style="min-width:170px;">Analyst</th>
+                    <th class="text-center" title="Food (Milk) + Food (Alcohol) reports">
+                        <i class="bi bi-cup-straw me-1 text-info"></i>Food
+                    </th>
+                    <th class="text-center" title="Toxicology reports">
+                        <i class="bi bi-droplet me-1 text-warning"></i>Tox
+                    </th>
+                    <th class="text-center" title="Pharmaceutical + Not-Registered Pharm reports">
+                        <i class="bi bi-capsule me-1" style="color:#6f42c1;"></i>Pharm
+                    </th>
+                    <th class="text-center text-nowrap">
+                        <i class="bi bi-check-circle-fill me-1 text-success"></i>
+                        Accepted on<br>First Submission
+                    </th>
+                    <th class="text-center text-nowrap">
+                        <i class="bi bi-arrow-counterclockwise me-1 text-danger"></i>
+                        Returned for<br>Correction
+                    </th>
+                    <th style="min-width:280px;">
+                        <i class="bi bi-chat-left-text me-1 text-muted"></i>
+                        Comments / Summary of Reasons for Returned Report
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for analyst in analyst_list %}
+                {% set total_tests = analyst.food + analyst.tox + analyst.pharm %}
+                {% set first_pct = ((analyst.accepted_first / (analyst.accepted_first + analyst.returned) * 100) | round(0) | int) if (analyst.accepted_first + analyst.returned) > 0 else 0 %}
+                <tr>
+                    <!-- Analyst Name -->
+                    <td class="ps-3 fw-semibold">
+                        {{ analyst.name }}
+                        <div class="text-muted fw-normal" style="font-size:0.72rem;">
+                            {{ total_tests }} total assignment{{ 's' if total_tests != 1 else '' }}
+                        </div>
+                    </td>
+
+                    <!-- Food -->
+                    <td class="text-center">
+                        {% if analyst.food > 0 %}
+                        <span class="badge rounded-pill bg-info text-dark fs-6 px-3">{{ analyst.food }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Tox -->
+                    <td class="text-center">
+                        {% if analyst.tox > 0 %}
+                        <span class="badge rounded-pill bg-warning text-dark fs-6 px-3">{{ analyst.tox }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Pharm -->
+                    <td class="text-center">
+                        {% if analyst.pharm > 0 %}
+                        <span class="badge rounded-pill fs-6 px-3" style="background:#6f42c1;color:#fff;">{{ analyst.pharm }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Accepted on First Submission -->
+                    <td class="text-center">
+                        {% if analyst.accepted_first > 0 %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">{{ analyst.accepted_first }}</span>
+                        <div class="mt-1">
+                            <div class="progress" style="height:6px; width:70px; margin:0 auto;">
+                                <div class="progress-bar bg-success" style="width:{{ first_pct }}%;"></div>
+                            </div>
+                            <div style="font-size:0.68rem;" class="text-muted mt-1">{{ first_pct }}%</div>
+                        </div>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Returned for Correction -->
+                    <td class="text-center">
+                        {% if analyst.returned > 0 %}
+                        <span class="badge rounded-pill bg-danger fs-6 px-3">{{ analyst.returned }}</span>
+                        {% else %}
+                        <span class="badge rounded-pill bg-success fs-6 px-3">0</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Return Reason Summary -->
+                    <td>
+                        {% if analyst.returned == 0 %}
+                        <span class="text-success small"><i class="bi bi-check2-circle me-1"></i>No returns</span>
+                        {% elif analyst.return_reasons %}
+                        <span class="small text-dark">{{ analyst.return_reasons }}</span>
+                        {% else %}
+                        <span class="text-muted small fst-italic">No data found</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted py-5">
+                        <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                        No analyst data found for this period.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+
+            <!-- Totals footer -->
+            {% if analyst_list %}
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="ps-3">TOTALS</td>
+                    <td class="text-center">{{ totals.food }}</td>
+                    <td class="text-center">{{ totals.tox }}</td>
+                    <td class="text-center">{{ totals.pharm }}</td>
+                    <td class="text-center">{{ totals.accepted_first }}</td>
+                    <td class="text-center">{{ totals.returned }}</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+<!-- ── Legend ────────────────────────────────────────────────── -->
+<div class="card shadow-sm border-0 bg-light">
+    <div class="card-body py-2">
+        <p class="small fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i>Legend &amp; Notes</p>
+        <ul class="mb-0 small text-muted ps-3">
+            <li><strong>Food</strong> — includes Food (Milk) and Food (Alcohol) disciplines.</li>
+            <li><strong>Tox</strong> — Toxicology laboratory.</li>
+            <li><strong>Pharm</strong> — Pharmaceutical and Not-Registered Pharmaceutical.</li>
+            <li><strong>Accepted on First Submission</strong> — no preliminary review returns recorded for the assignment.</li>
+            <li><strong>Returned for Correction</strong> — at least one preliminary review return was recorded.</li>
+            <li><strong>Return reasons</strong> are derived automatically from reviewer comments. Export the CSV for full details.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
