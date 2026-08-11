@@ -172,7 +172,7 @@
                         {% if row.quality_flags_display != 'None' %}
                         <span class="text-warning">{{ row.quality_flags_display }}</span>
                         {% else %}
-                        <span class="text-muted">{{ row.preliminary_return_ids | length + row.other_resubmission_ids | length }} counted row(s)</span>
+                        <span class="text-muted">{{ (row.preliminary_return_ids + row.other_resubmission_ids) | length }} counted row(s)</span>
                         {% endif %}
                     </td>
                 </tr>

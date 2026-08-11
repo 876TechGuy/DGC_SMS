@@ -2735,17 +2735,17 @@ def _qa_corrected_sample_report(assignments):
     )
     doc_duplicate_keys = {}
     for doc in resubmissions:
+        row = rows.get(doc.sample_id)
+        if not row:
+            continue
         rtype = doc.resubmission_type or 'unspecified'
-        if rtype not in rows[doc.sample_id]['type_breakdown']:
-            rows[doc.sample_id]['type_breakdown'][rtype] = 0
+        if rtype not in row['type_breakdown']:
+            row['type_breakdown'][rtype] = 0
         doc_duplicate_keys.setdefault(
             (doc.sample_id, doc.assignment_id, doc.version_number, doc.file_path, rtype),
             [],
         ).append(doc.id)
 
-        row = rows.get(doc.sample_id)
-        if not row:
-            continue
         if doc.assignment_id:
             linked_assignment = db.session.get(SampleAssignment, doc.assignment_id)
             if linked_assignment and linked_assignment.sample_id != doc.sample_id:
@@ -3309,7 +3309,10 @@ def qa_performance_download():
     q_label = f' Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     writer.writerow([f'QA Performance Summary — {fy_label}{q_label}'])
     writer.writerow([f'Counts based on: {count_label}'])
-    writer.writerow(['Reconciliation: Previous figures could be inaccurate when they collapsed a sample to returned/not returned, counted report uploads instead of ReviewHistory return events, or mixed Preliminary Review returns with other resubmission types. Exact prior figures are not determinable from available records.'])
+    writer.writerow(['Reconciliation'])
+    writer.writerow(['Previous figures could be inaccurate when they collapsed a sample to returned/not returned.'])
+    writer.writerow(['Previous figures could also be inaccurate when they counted report uploads instead of ReviewHistory return events.'])
+    writer.writerow(['Exact prior figures are not determinable from available records.'])
     writer.writerow([])
     writer.writerow(['Corrected Sample-Level Summary'])
     writer.writerow(['Unique Samples', corrected_report['totals']['samples']])
