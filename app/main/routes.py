@@ -743,6 +743,35 @@ def _resubmission_type_breakdown_for_assignments(assignment_ids):
     return result
 
 
+def _preliminary_return_counts_for_assignments(assignment_ids):
+    """Return a dict of {assignment_id: return_count} for the given assignments.
+
+    Counts distinct ReviewHistory rows with review_type='preliminary' and
+    action in ('returned', 'not_accepted').  Uses the authoritative return-event
+    records rather than DocumentVersion resubmissions so that:
+      - samples currently in a returned state (not yet resubmitted) are included;
+      - the same event is never counted twice regardless of how many report rows
+        reference the same assignment.
+    """
+    if not assignment_ids:
+        return {}
+    from sqlalchemy import func
+    rows = (
+        db.session.query(
+            ReviewHistory.assignment_id,
+            func.count(ReviewHistory.id),
+        )
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action.in_(['returned', 'not_accepted']),
+        )
+        .group_by(ReviewHistory.assignment_id)
+        .all()
+    )
+    return {aid: cnt for aid, cnt in rows}
+
+
 @main_bp.route('/kpi/report')
 @login_required
 def kpi_report():
@@ -2675,38 +2704,13 @@ def _qa_preliminary_analyst_stats(assignments):
 
     assignment_ids = list(assign_map.keys())
 
-    # Fetch all preliminary review entries with action returned or not_accepted
-    rows = (
-        ReviewHistory.query
-        .filter(
-            ReviewHistory.assignment_id.in_(assignment_ids),
-            ReviewHistory.review_type == 'preliminary',
-            ReviewHistory.action.in_(['returned', 'not_accepted']),
-        )
-        .with_entities(
-            ReviewHistory.assignment_id,
-            ReviewHistory.action,
-            ReviewHistory.reviewed_at,
-        )
-        .order_by(ReviewHistory.reviewed_at.asc())
-        .all()
-    )
-
-    # Per-analyst accumulator: keyed by chemist_id
+    # Pre-populate per-analyst data from ALL assignments so that qty_samples
+    # reflects every unique sample assigned to the analyst, not only those
+    # that appear in return events.
     data = {}
-    # Track which samples have already been counted per action per analyst
-    # to enforce "per sample, counted once" rule.
-    seen_returned = {}     # (chemist_id, sample_id) → duration_seconds (first event)
-    seen_not_accepted = {} # (chemist_id, sample_id) → duration_seconds (first event)
-
-    for row in rows:
-        ainfo = assign_map.get(row.assignment_id)
-        if not ainfo:
-            continue
+    for aid, ainfo in assign_map.items():
         cid = ainfo['chemist_id']
-        sid = ainfo['sample_id']
         lab_type = ainfo['lab_type']
-
         if cid not in data:
             data[cid] = {
                 'name': ainfo['chemist_name'],
@@ -2717,9 +2721,38 @@ def _qa_preliminary_analyst_stats(assignments):
                 '_returned_durations': [],
                 '_not_accepted_durations': [],
             }
+        data[cid]['sample_ids'].add(ainfo['sample_id'])
 
-        entry = data[cid]
-        entry['sample_ids'].add(sid)
+    # Fetch all preliminary review entries with action returned or not_accepted.
+    # Each ReviewHistory row is one distinct return event (identified by its id);
+    # do NOT deduplicate by analyst-sample pair — multiple returns of the same
+    # sample are all counted individually per the QA metric definition.
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action.in_(['returned', 'not_accepted']),
+        )
+        .with_entities(
+            ReviewHistory.id,
+            ReviewHistory.assignment_id,
+            ReviewHistory.action,
+            ReviewHistory.reviewed_at,
+        )
+        .order_by(ReviewHistory.reviewed_at.asc())
+        .all()
+    )
+
+    for row in rows:
+        ainfo = assign_map.get(row.assignment_id)
+        if not ainfo:
+            continue
+        cid = ainfo['chemist_id']
+
+        entry = data.get(cid)
+        if not entry:
+            continue
 
         # Calculate duration (hours) if report_submitted_at is available
         duration_hrs = None
@@ -2728,19 +2761,13 @@ def _qa_preliminary_analyst_stats(assignments):
             duration_hrs = delta.total_seconds() / 3600.0
 
         if row.action == 'returned':
-            key = (cid, sid)
-            if key not in seen_returned:
-                seen_returned[key] = duration_hrs
-                entry['returned_count'] += 1
-                if duration_hrs is not None:
-                    entry['_returned_durations'].append(duration_hrs)
+            entry['returned_count'] += 1
+            if duration_hrs is not None:
+                entry['_returned_durations'].append(duration_hrs)
         else:  # not_accepted
-            key = (cid, sid)
-            if key not in seen_not_accepted:
-                seen_not_accepted[key] = duration_hrs
-                entry['not_accepted_count'] += 1
-                if duration_hrs is not None:
-                    entry['_not_accepted_durations'].append(duration_hrs)
+            entry['not_accepted_count'] += 1
+            if duration_hrs is not None:
+                entry['_not_accepted_durations'].append(duration_hrs)
 
     # Compute averages and totals; clean up internal accumulators
     result = {}
@@ -2788,9 +2815,12 @@ def qa_performance_summary():
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
 
-    # Fetch per-assignment preliminary resubmission counts in one query
+    # Fetch per-assignment preliminary return counts from ReviewHistory (authoritative source).
+    # Using ReviewHistory.action in ('returned', 'not_accepted') is more accurate than
+    # counting DocumentVersion resubmissions, because it captures samples that have been
+    # returned but not yet resubmitted by the analyst.
     all_ids = [a.id for a in assignments]
-    prelim_counts = _resubmission_counts_for_assignments(all_ids, review_types=['preliminary'])
+    prelim_counts = _preliminary_return_counts_for_assignments(all_ids)
 
     # Build per-analyst data
     analyst_data = {}
@@ -2915,7 +2945,7 @@ def qa_performance_download():
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
 
     all_ids = [a.id for a in assignments]
-    prelim_counts = _resubmission_counts_for_assignments(all_ids, review_types=['preliminary'])
+    prelim_counts = _preliminary_return_counts_for_assignments(all_ids)
 
     analyst_data = {}
     for a in assignments:
