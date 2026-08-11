@@ -909,7 +909,7 @@ def test_qa_performance_page_uses_corrected_sample_event_counts(app, client):
     assert b'QA-RET-001' in resp.data
     # Two ReviewHistory returned rows are counted, not a boolean sample flag.
     assert b'Preliminary Return Events' in resp.data
-    assert b'>2</div>' in resp.data
+    assert b'data-testid="qa-prelim-return-total">2</div>' in resp.data
 
 
 def test_qa_performance_download_includes_audit_breakdown_and_exclusions(app, client):

@@ -120,7 +120,7 @@
                 <small class="text-muted">Unique Samples</small>
             </div>
             <div class="col-6 col-md">
-                <div class="fw-bold fs-4 text-danger">{{ corrected_report.totals.preliminary_returns }}</div>
+                <div class="fw-bold fs-4 text-danger" data-testid="qa-prelim-return-total">{{ corrected_report.totals.preliminary_returns }}</div>
                 <small class="text-muted">Preliminary Return Events</small>
             </div>
             <div class="col-6 col-md">
@@ -149,7 +149,7 @@
                     <th class="ps-3">Sample ID</th>
                     <th>Analysts Involved</th>
                     <th class="text-center">Prelim Returns</th>
-                    <th class="text-center">Senior Chemist</th>
+                    <th class="text-center">Senior Chemist Review</th>
                     <th class="text-center">Deputy</th>
                     <th class="text-center">HOD</th>
                     <th class="text-center">Unspecified</th>
@@ -225,7 +225,7 @@
                     </th>
                     <th class="text-center text-nowrap">
                         <i class="bi bi-arrow-counterclockwise me-1 text-danger"></i>
-                        Returned for<br>Correction
+                        Preliminary Return<br>Events
                     </th>
                     <th style="min-width:280px;">
                         <i class="bi bi-chat-left-text me-1 text-muted"></i>
@@ -351,7 +351,7 @@
             <li><strong>Counting method: by test assignment</strong> — each individual test assignment is counted separately.</li>
             {% endif %}
             <li><strong>Accepted on First Submission</strong> — no preliminary review returns recorded.</li>
-            <li><strong>Returned for Correction</strong> — at least one preliminary review return was recorded.</li>
+            <li><strong>Preliminary Return Events</strong> — each distinct Preliminary Review return event recorded in ReviewHistory.</li>
             <li><strong>Return reasons</strong> are derived automatically from reviewer comments. Export the CSV for full details.</li>
             <li class="mt-1">The counting method can be changed by an administrator in
                 <a href="{{ url_for('main.settings') }}">System Settings</a>.</li>

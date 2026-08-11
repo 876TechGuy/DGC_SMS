@@ -2668,6 +2668,30 @@ def _qa_corrected_sample_report(assignments):
         .order_by(ReviewHistory.reviewed_at.asc(), ReviewHistory.id.asc())
         .all()
     )
+    resubmissions = (
+        DocumentVersion.query
+        .filter(
+            DocumentVersion.sample_id.in_(sample_ids),
+            DocumentVersion.document_type == 'report',
+            DocumentVersion.upload_label == 'resubmission',
+        )
+        .order_by(DocumentVersion.sample_id.asc(), DocumentVersion.id.asc())
+        .all()
+    )
+    extra_assignment_ids = {
+        event.assignment_id for event in prelim_events
+        if event.assignment_id and event.assignment_id not in assignment_by_id
+    }
+    extra_assignment_ids.update(
+        doc.assignment_id for doc in resubmissions
+        if doc.assignment_id and doc.assignment_id not in assignment_by_id
+    )
+    if extra_assignment_ids:
+        extra_assignments = SampleAssignment.query.filter(
+            SampleAssignment.id.in_(extra_assignment_ids)
+        ).all()
+        assignment_by_id.update({a.id: a for a in extra_assignments})
+
     prelim_duplicate_keys = {}
     for event in prelim_events:
         key = (
@@ -2686,15 +2710,10 @@ def _qa_corrected_sample_report(assignments):
             analyst_name = assignment.chemist.full_name
             row['analysts'].add(analyst_name)
         elif event.assignment_id:
-            linked_assignment = db.session.get(SampleAssignment, event.assignment_id)
-            if linked_assignment and linked_assignment.chemist:
-                analyst_name = linked_assignment.chemist.full_name
-                row['analysts'].add(analyst_name)
-            else:
-                add_issue(
-                    event.sample_id, 'Incomplete record', 'ReviewHistory',
-                    event.id, 'Preliminary return has no resolvable assignment/analyst link',
-                )
+            add_issue(
+                event.sample_id, 'Incomplete record', 'ReviewHistory',
+                event.id, 'Preliminary return has no resolvable assignment/analyst link',
+            )
         else:
             add_issue(
                 event.sample_id, 'Incomplete record', 'ReviewHistory',
@@ -2723,16 +2742,6 @@ def _qa_corrected_sample_report(assignments):
                     'Multiple Preliminary Review return rows share the same assignment, reviewer, time, and comments',
                 )
 
-    resubmissions = (
-        DocumentVersion.query
-        .filter(
-            DocumentVersion.sample_id.in_(sample_ids),
-            DocumentVersion.document_type == 'report',
-            DocumentVersion.upload_label == 'resubmission',
-        )
-        .order_by(DocumentVersion.sample_id.asc(), DocumentVersion.id.asc())
-        .all()
-    )
     doc_duplicate_keys = {}
     for doc in resubmissions:
         row = rows.get(doc.sample_id)
@@ -2747,7 +2756,7 @@ def _qa_corrected_sample_report(assignments):
         ).append(doc.id)
 
         if doc.assignment_id:
-            linked_assignment = db.session.get(SampleAssignment, doc.assignment_id)
+            linked_assignment = assignment_by_id.get(doc.assignment_id)
             if linked_assignment and linked_assignment.sample_id != doc.sample_id:
                 add_issue(
                     doc.sample_id, 'Conflicting record', 'DocumentVersion',
@@ -3374,7 +3383,7 @@ def qa_performance_download():
     writer.writerow(['Legacy Analyst Summary (recalculated with Preliminary Review returns from ReviewHistory only)'])
     writer.writerow([
         'Analyst', 'Food', 'Tox', 'Pharm',
-        'Accepted on First Submission', 'Returned for Correction',
+        'Accepted on First Submission', 'Preliminary Return Events',
         'Comments / Summary of Reasons for Returned Report',
     ])
     for row in rows:
