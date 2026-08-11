@@ -169,7 +169,7 @@
                     <td class="text-center">{{ row.type_breakdown.unspecified }}</td>
                     <td class="text-center fw-semibold">{{ row.combined_total }}</td>
                     <td class="small">
-                        {% if row.quality_flags_display != 'None' %}
+                        {% if row.has_quality_flags %}
                         <span class="text-warning">{{ row.quality_flags_display }}</span>
                         {% else %}
                         <span class="text-muted">{{ (row.preliminary_return_ids + row.other_resubmission_ids) | length }} counted row(s)</span>

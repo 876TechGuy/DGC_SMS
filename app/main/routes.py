@@ -2645,7 +2645,8 @@ def _qa_corrected_sample_report(assignments):
     exclusions = []
 
     def add_issue(sid, issue_type, source, event_id, detail):
-        lab = sample_by_id.get(sid).lab_number if sid in sample_by_id else str(sid)
+        sample = sample_by_id.get(sid)
+        lab = sample.lab_number if sample else str(sid)
         issue = {
             'sample_id': sid,
             'lab_number': lab,
@@ -2830,6 +2831,7 @@ def _qa_corrected_sample_report(assignments):
         row['combined_total'] = row['preliminary_returns'] + row['other_resubmissions']
         row['analysts_display'] = _qa_unique_csv(row['analysts'])
         row['audit_trail'] = '; '.join(row['audit_events']) or 'No counted return/resubmission events'
+        row['has_quality_flags'] = bool(row['quality_flags'])
         row['quality_flags_display'] = '; '.join(row['quality_flags']) or 'None'
         sample_rows.append(row)
 
