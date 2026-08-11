@@ -2144,6 +2144,7 @@ def analyst_report():
             q = q.filter(Sample.status.in_(resolved_statuses))
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+    corrected_report = _qa_corrected_sample_report(assignments)
 
     # Group by analyst; track per-status counts for breakdown display
     analyst_data = {}
@@ -3158,7 +3159,9 @@ def qa_performance_summary():
                 any_returned = any(prelim_counts.get(aid, 0) > 0
                                    for aid in sdata['assignment_ids'])
                 if any_returned:
-                    entry['returned'] += 1
+                    entry['returned'] += sum(
+                        prelim_counts.get(aid, 0) for aid in sdata['assignment_ids']
+                    )
                 else:
                     entry['accepted_first'] += 1
             del entry['_sample_map']
@@ -3208,6 +3211,7 @@ def qa_performance_summary():
         available_years=available_years,
         totals=totals,
         count_by=count_by,
+        corrected_report=corrected_report,
         reviewer_stats=reviewer_stats,
         prelim_analyst_list=prelim_analyst_list,
     )
@@ -3233,6 +3237,7 @@ def qa_performance_download():
     q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
                             quarter if quarter in (1, 2, 3, 4) else None)
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+    corrected_report = _qa_corrected_sample_report(assignments)
 
     all_ids = [a.id for a in assignments]
     prelim_counts = _preliminary_return_counts_for_assignments(all_ids)
@@ -3275,7 +3280,9 @@ def qa_performance_download():
                 any_returned = any(prelim_counts.get(aid, 0) > 0
                                    for aid in sdata['assignment_ids'])
                 if any_returned:
-                    entry['returned'] += 1
+                    entry['returned'] += sum(
+                        prelim_counts.get(aid, 0) for aid in sdata['assignment_ids']
+                    )
                 else:
                     entry['accepted_first'] += 1
             del entry['_sample_map']
@@ -3302,7 +3309,66 @@ def qa_performance_download():
     q_label = f' Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     writer.writerow([f'QA Performance Summary — {fy_label}{q_label}'])
     writer.writerow([f'Counts based on: {count_label}'])
+    writer.writerow(['Reconciliation: Previous figures could be inaccurate when they collapsed a sample to returned/not returned, counted report uploads instead of ReviewHistory return events, or mixed Preliminary Review returns with other resubmission types. Exact prior figures are not determinable from available records.'])
     writer.writerow([])
+    writer.writerow(['Corrected Sample-Level Summary'])
+    writer.writerow(['Unique Samples', corrected_report['totals']['samples']])
+    writer.writerow(['Samples with Preliminary Review Returns', corrected_report['totals']['samples_with_prelim_returns']])
+    writer.writerow(['Preliminary Review Return Events', corrected_report['totals']['preliminary_returns']])
+    writer.writerow(['Other Resubmission Events', corrected_report['totals']['other_resubmissions']])
+    writer.writerow(['Combined Return/Resubmission Events', corrected_report['totals']['combined_total']])
+    writer.writerow([])
+    writer.writerow(['Sample-Level Return Count and Audit Trail'])
+    writer.writerow([
+        'Sample ID', 'Sample Name', 'Laboratory', 'Analysts Involved',
+        'Preliminary Review Returns',
+        'Preliminary Resubmission Uploads (excluded from combined total)',
+        'Senior Chemist Review Resubmissions', 'Deputy Review Resubmissions',
+        'HOD Review Resubmissions', 'Unspecified Resubmissions',
+        'Other Resubmissions', 'Combined Total',
+        'Preliminary Return ReviewHistory IDs', 'Other Resubmission DocumentVersion IDs',
+        'Record-Level Audit Trail', 'Data Quality Flags',
+    ])
+    for row in corrected_report['sample_rows']:
+        bdown = row['type_breakdown']
+        writer.writerow([
+            row['lab_number'], row['sample_name'], row['lab_type'], row['analysts_display'],
+            row['preliminary_returns'], bdown.get('preliminary', 0),
+            bdown.get('technical', 0), bdown.get('deputy', 0),
+            bdown.get('hod', 0), bdown.get('unspecified', 0),
+            row['other_resubmissions'], row['combined_total'],
+            ', '.join(str(i) for i in row['preliminary_return_ids']),
+            ', '.join(str(i) for i in row['other_resubmission_ids']),
+            row['audit_trail'], row['quality_flags_display'],
+        ])
+    writer.writerow([])
+    writer.writerow(['Breakdown by Analyst'])
+    writer.writerow([
+        'Analyst', 'Samples Involved', 'Preliminary Review Returns',
+        'Other Resubmissions', 'Combined Total', 'Audit Event IDs',
+    ])
+    for row in corrected_report['analyst_breakdown']:
+        writer.writerow([
+            row['analyst'], row['sample_count'], row['preliminary_returns'],
+            row['other_resubmissions'], row['combined_total'], row['audit_event_ids'],
+        ])
+    writer.writerow([])
+    writer.writerow(['Duplicates, Exclusions, and Data-Quality Issues'])
+    writer.writerow(['Sample ID', 'Source', 'Event/Row ID', 'Type', 'Detail'])
+    for row in corrected_report['exclusions']:
+        writer.writerow([
+            row['lab_number'], row['source'], row['event_id'], 'Excluded',
+            row['reason'],
+        ])
+    for row in corrected_report['quality_issues']:
+        writer.writerow([
+            row['lab_number'], row['source'], row['event_id'], row['issue_type'],
+            row['detail'],
+        ])
+    if not corrected_report['exclusions'] and not corrected_report['quality_issues']:
+        writer.writerow(['not determinable from available records', '', '', 'None flagged', 'No duplicate, conflicting, incomplete, or ambiguous records detected by report rules'])
+    writer.writerow([])
+    writer.writerow(['Legacy Analyst Summary (recalculated with Preliminary Review returns from ReviewHistory only)'])
     writer.writerow([
         'Analyst', 'Food', 'Tox', 'Pharm',
         'Accepted on First Submission', 'Returned for Correction',
