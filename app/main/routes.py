@@ -2870,7 +2870,8 @@ def _qa_reviewer_stats(assignment_ids):
     Queries ReviewHistory for all preliminary-type reviews on the given
     assignment IDs and aggregates totals per reviewer.  Returns a list of
     dicts (sorted by reviewer name) with keys:
-        name, total, approved, returned, not_accepted, return_rate
+        name, total, approved, returned, not_accepted, return_rate, reviews
+    where ``reviews`` is a list of report-detail dicts for the modal drill-down.
     """
     if not assignment_ids:
         return []
@@ -2884,9 +2885,19 @@ def _qa_reviewer_stats(assignment_ids):
         .with_entities(
             ReviewHistory.reviewer_id,
             ReviewHistory.action,
+            ReviewHistory.assignment_id,
+            ReviewHistory.reviewed_at,
         )
         .all()
     )
+
+    # Bulk-load assignment data so we can look up sample lab numbers and analyst names
+    asgn_map = {}
+    if rows:
+        asgn_ids_needed = {r.assignment_id for r in rows if r.assignment_id}
+        asgns = SampleAssignment.query.filter(SampleAssignment.id.in_(asgn_ids_needed)).all()
+        for a in asgns:
+            asgn_map[a.id] = a
 
     # Collect reviewer ids then bulk-load names
     reviewer_ids = {r.reviewer_id for r in rows}
@@ -2903,6 +2914,7 @@ def _qa_reviewer_stats(assignment_ids):
                 'approved': 0,
                 'returned': 0,
                 'not_accepted': 0,
+                'reviews': [],
             }
         data[rid]['total'] += 1
         if row.action == 'approved':
@@ -2912,10 +2924,31 @@ def _qa_reviewer_stats(assignment_ids):
         else:
             data[rid]['returned'] += 1
 
+        # Build a report-detail entry for the modal drill-down
+        asgn = asgn_map.get(row.assignment_id)
+        if asgn:
+            sample = asgn.sample
+            analyst_name = asgn.chemist.full_name if asgn.chemist else 'Unknown'
+            lab_number = sample.lab_number if sample else '—'
+            test_name = asgn.test_name or '—'
+        else:
+            analyst_name = '—'
+            lab_number = '—'
+            test_name = '—'
+        data[rid]['reviews'].append({
+            'lab_number': lab_number,
+            'analyst': analyst_name,
+            'test_name': test_name,
+            'action': row.action,
+            'reviewed_at': row.reviewed_at.strftime('%Y-%m-%d %H:%M') if row.reviewed_at else '—',
+        })
+
     result = sorted(data.values(), key=lambda x: x['name'].lower())
     for entry in result:
         t = entry['total']
         entry['return_rate'] = round((entry['returned'] + entry['not_accepted']) / t * 100, 1) if t else 0.0
+        # Sort reviews newest-first for the modal
+        entry['reviews'].sort(key=lambda r: r['reviewed_at'], reverse=True)
     return result
 
 
@@ -3109,6 +3142,7 @@ def qa_performance_summary():
 
     year = request.args.get('year', type=int, default=_current_fiscal_year())
     quarter = request.args.get('quarter', type=int, default=0)  # 0 = full year
+    month = request.args.get('month', type=int, default=0)       # 0 = all months
     search = request.args.get('search', '').strip()
 
     count_by = Setting.get(QA_PERFORMANCE_COUNT_BY_KEY, 'sample')
@@ -3118,8 +3152,18 @@ def qa_performance_summary():
         SampleAssignment.query
         .join(Sample, SampleAssignment.sample_id == Sample.id)
     )
-    q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
-                            quarter if quarter in (1, 2, 3, 4) else None)
+    if month and 1 <= month <= 12:
+        # Month filter: full fiscal year but restrict to the selected calendar month
+        from sqlalchemy import extract as sa_extract
+        fy_start, fy_end = fiscal_year_date_range(year, None)
+        q = q.filter(
+            SampleAssignment.assigned_date >= fy_start,
+            SampleAssignment.assigned_date <= fy_end,
+            sa_extract('month', SampleAssignment.assigned_date) == month,
+        )
+    else:
+        q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
+                                quarter if quarter in (1, 2, 3, 4) else None)
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
     corrected_report = _qa_corrected_sample_report(assignments)
@@ -3223,6 +3267,7 @@ def qa_performance_summary():
         analyst_list=analyst_list,
         year=year,
         quarter=quarter,
+        month=month,
         search=search,
         available_years=available_years,
         totals=totals,
