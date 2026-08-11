@@ -520,7 +520,7 @@
                 {% for rv in reviewer_stats %}
                 <tr class="reviewer-row" style="cursor:pointer;"
                     data-reviewer="{{ rv.name | e }}"
-                    data-reviews="{{ rv.reviews | tojson | e }}">
+                    data-reviews='{{ rv.reviews | tojson }}'>
                     <td class="ps-3 fw-semibold">
                         {{ rv.name }}
                         <i class="bi bi-chevron-right ms-1 text-muted" style="font-size:0.75rem;"></i>
