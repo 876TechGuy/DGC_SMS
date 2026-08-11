@@ -747,7 +747,7 @@ def _preliminary_return_counts_for_assignments(assignment_ids):
     """Return a dict of {assignment_id: return_count} for the given assignments.
 
     Counts distinct ReviewHistory rows with review_type='preliminary' and
-    action in ('returned', 'not_accepted').  Uses the authoritative return-event
+    action='returned'.  Uses the authoritative return-event
     records rather than DocumentVersion resubmissions so that:
       - samples currently in a returned state (not yet resubmitted) are included;
       - the same event is never counted twice regardless of how many report rows
@@ -764,7 +764,7 @@ def _preliminary_return_counts_for_assignments(assignment_ids):
         .filter(
             ReviewHistory.assignment_id.in_(assignment_ids),
             ReviewHistory.review_type == 'preliminary',
-            ReviewHistory.action.in_(['returned', 'not_accepted']),
+            ReviewHistory.action == 'returned',
         )
         .group_by(ReviewHistory.assignment_id)
         .all()
@@ -2556,6 +2556,314 @@ def _can_view_qa_performance():
     )
 
 
+def _qa_format_dt(value):
+    """Format a datetime/date value for report audit fields."""
+    if not value:
+        return ''
+    return value.strftime('%Y-%m-%d %H:%M') if hasattr(value, 'strftime') else str(value)
+
+
+def _qa_unique_csv(values):
+    """Return a stable comma-separated string for a collection of display values."""
+    cleaned = sorted({v for v in values if v})
+    return ', '.join(cleaned) if cleaned else 'not determinable from available records'
+
+
+def _qa_corrected_sample_report(assignments):
+    """Build corrected sample-level QA return/resubmission counts and audit rows.
+
+    Preliminary Review returns are sourced only from ReviewHistory rows with
+    review_type='preliminary' and action='returned'.  Other resubmissions are
+    sourced from report DocumentVersion rows with upload_label='resubmission',
+    excluding preliminary resubmission uploads from the combined total to avoid
+    double-counting the same Preliminary Review return event.
+    """
+    if not assignments:
+        return {
+            'sample_rows': [],
+            'analyst_breakdown': [],
+            'quality_issues': [],
+            'exclusions': [],
+            'totals': {
+                'samples': 0,
+                'samples_with_prelim_returns': 0,
+                'preliminary_returns': 0,
+                'other_resubmissions': 0,
+                'combined_total': 0,
+            },
+        }
+
+    type_labels = dict(RESUBMISSION_TYPES)
+    type_keys = [key for key, _ in RESUBMISSION_TYPES]
+    assignment_by_id = {a.id: a for a in assignments}
+    sample_by_id = {}
+    analysts_by_sample = {}
+    for a in assignments:
+        if not a.sample:
+            continue
+        sample_by_id[a.sample_id] = a.sample
+        analysts_by_sample.setdefault(a.sample_id, set()).add(
+            a.chemist.full_name if a.chemist else 'Unknown'
+        )
+
+    sample_ids = sorted(sample_by_id.keys())
+    rows = {}
+    for sid in sample_ids:
+        sample = sample_by_id[sid]
+        rows[sid] = {
+            'sample_id': sid,
+            'lab_number': sample.lab_number,
+            'sample_name': sample.sample_name,
+            'lab_type': sample.sample_type.value if sample.sample_type else '',
+            'analysts': set(analysts_by_sample.get(sid, set())),
+            'preliminary_returns': 0,
+            'other_resubmissions': 0,
+            'combined_total': 0,
+            'type_breakdown': {key: 0 for key in type_keys},
+            'preliminary_return_ids': [],
+            'other_resubmission_ids': [],
+            'audit_events': [],
+            'quality_flags': [],
+        }
+
+    analyst_data = {}
+
+    def analyst_entry(name):
+        key = name or 'not determinable from available records'
+        if key not in analyst_data:
+            analyst_data[key] = {
+                'analyst': key,
+                'samples': set(),
+                'preliminary_returns': 0,
+                'other_resubmissions': 0,
+                'combined_total': 0,
+                'event_ids': [],
+            }
+        return analyst_data[key]
+
+    quality_issues = []
+    exclusions = []
+
+    def add_issue(sid, issue_type, source, event_id, detail):
+        sample = sample_by_id.get(sid)
+        lab = sample.lab_number if sample else str(sid)
+        issue = {
+            'sample_id': sid,
+            'lab_number': lab,
+            'issue_type': issue_type,
+            'source': source,
+            'event_id': event_id,
+            'detail': detail,
+        }
+        quality_issues.append(issue)
+        if sid in rows:
+            rows[sid]['quality_flags'].append(f'{issue_type}: {detail}')
+
+    prelim_events = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.sample_id.in_(sample_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action == 'returned',
+        )
+        .order_by(ReviewHistory.reviewed_at.asc(), ReviewHistory.id.asc())
+        .all()
+    )
+    resubmissions = (
+        DocumentVersion.query
+        .filter(
+            DocumentVersion.sample_id.in_(sample_ids),
+            DocumentVersion.document_type == 'report',
+            DocumentVersion.upload_label == 'resubmission',
+        )
+        .order_by(DocumentVersion.sample_id.asc(), DocumentVersion.id.asc())
+        .all()
+    )
+    extra_assignment_ids = {
+        event.assignment_id for event in prelim_events
+        if event.assignment_id and event.assignment_id not in assignment_by_id
+    }
+    extra_assignment_ids.update(
+        doc.assignment_id for doc in resubmissions
+        if doc.assignment_id and doc.assignment_id not in assignment_by_id
+    )
+    if extra_assignment_ids:
+        extra_assignments = SampleAssignment.query.filter(
+            SampleAssignment.id.in_(extra_assignment_ids)
+        ).all()
+        assignment_by_id.update({a.id: a for a in extra_assignments})
+
+    prelim_by_id = {event.id: event for event in prelim_events}
+    prelim_duplicate_keys = {}
+    for event in prelim_events:
+        key = (
+            event.sample_id, event.assignment_id, event.reviewer_id,
+            event.reviewed_at.isoformat() if event.reviewed_at else None,
+            event.comments or '',
+        )
+        prelim_duplicate_keys.setdefault(key, []).append(event.id)
+
+        row = rows.get(event.sample_id)
+        if not row:
+            continue
+        assignment = assignment_by_id.get(event.assignment_id)
+        analyst_name = 'not determinable from available records'
+        if assignment and assignment.chemist:
+            analyst_name = assignment.chemist.full_name
+            row['analysts'].add(analyst_name)
+        elif event.assignment_id:
+            add_issue(
+                event.sample_id, 'Incomplete record', 'ReviewHistory',
+                event.id, 'Preliminary return has no resolvable assignment/analyst link',
+            )
+        else:
+            add_issue(
+                event.sample_id, 'Incomplete record', 'ReviewHistory',
+                event.id, 'Preliminary return is missing assignment_id; analyst is not determinable',
+            )
+
+        row['preliminary_returns'] += 1
+        row['preliminary_return_ids'].append(event.id)
+        row['audit_events'].append(
+            f'ReviewHistory#{event.id} preliminary returned '
+            f'({analyst_name}; {_qa_format_dt(event.reviewed_at)})'
+        )
+        entry = analyst_entry(analyst_name)
+        entry['samples'].add(event.sample_id)
+        entry['preliminary_returns'] += 1
+        entry['combined_total'] += 1
+        entry['event_ids'].append(f'RH#{event.id}')
+
+    for dup_ids in prelim_duplicate_keys.values():
+        if len(dup_ids) > 1:
+            first = prelim_by_id.get(dup_ids[0])
+            if first:
+                add_issue(
+                    first.sample_id, 'Possible duplicate', 'ReviewHistory',
+                    ','.join(str(i) for i in dup_ids),
+                    'Multiple Preliminary Review return rows share the same assignment, reviewer, time, and comments',
+                )
+
+    doc_by_id = {doc.id: doc for doc in resubmissions}
+    doc_duplicate_keys = {}
+    for doc in resubmissions:
+        row = rows.get(doc.sample_id)
+        if not row:
+            continue
+        raw_rtype = doc.resubmission_type
+        rtype = raw_rtype or 'unspecified'
+        if raw_rtype and raw_rtype not in type_keys:
+            add_issue(
+                doc.sample_id, 'Ambiguous record', 'DocumentVersion',
+                doc.id, f'Unexpected resubmission type "{raw_rtype}"; counted as unspecified',
+            )
+            rtype = 'unspecified'
+        doc_duplicate_keys.setdefault(
+            (doc.sample_id, doc.assignment_id, doc.version_number, doc.file_path, raw_rtype),
+            [],
+        ).append(doc.id)
+
+        if doc.assignment_id:
+            linked_assignment = assignment_by_id.get(doc.assignment_id)
+            if linked_assignment and linked_assignment.sample_id != doc.sample_id:
+                add_issue(
+                    doc.sample_id, 'Conflicting record', 'DocumentVersion',
+                    doc.id, 'Document sample_id conflicts with linked assignment sample_id',
+                )
+            if linked_assignment and linked_assignment.chemist:
+                row['analysts'].add(linked_assignment.chemist.full_name)
+                analyst_name = linked_assignment.chemist.full_name
+            else:
+                analyst_name = 'not determinable from available records'
+        else:
+            analyst_name = 'not determinable from available records'
+            add_issue(
+                doc.sample_id, 'Incomplete record', 'DocumentVersion',
+                doc.id, 'Resubmission row is missing assignment_id; analyst is not determinable',
+            )
+
+        if not raw_rtype:
+            add_issue(
+                doc.sample_id, 'Ambiguous record', 'DocumentVersion',
+                doc.id, 'Resubmission type is missing; counted as unspecified',
+            )
+
+        row['type_breakdown'][rtype] += 1
+        audit = (
+            f'DocumentVersion#{doc.id} {type_labels.get(rtype, rtype.title())} '
+            f'resubmission upload ({analyst_name}; version {doc.version_number})'
+        )
+        row['audit_events'].append(audit)
+
+        if rtype == 'preliminary':
+            exclusions.append({
+                'sample_id': doc.sample_id,
+                'lab_number': row['lab_number'],
+                'source': 'DocumentVersion',
+                'event_id': doc.id,
+                'reason': (
+                    'Preliminary resubmission upload excluded from combined total; '
+                    'Preliminary Review returns are counted from ReviewHistory return events'
+                ),
+            })
+            continue
+
+        row['other_resubmissions'] += 1
+        row['other_resubmission_ids'].append(doc.id)
+        entry = analyst_entry(analyst_name)
+        entry['samples'].add(doc.sample_id)
+        entry['other_resubmissions'] += 1
+        entry['combined_total'] += 1
+        entry['event_ids'].append(f'DV#{doc.id}')
+
+    for dup_ids in doc_duplicate_keys.values():
+        if len(dup_ids) > 1:
+            first = doc_by_id.get(dup_ids[0])
+            if first:
+                add_issue(
+                    first.sample_id, 'Possible duplicate', 'DocumentVersion',
+                    ','.join(str(i) for i in dup_ids),
+                    'Multiple resubmission rows share the same assignment, version, file, and type',
+                )
+
+    sample_rows = []
+    for row in rows.values():
+        row['combined_total'] = row['preliminary_returns'] + row['other_resubmissions']
+        row['analysts_display'] = _qa_unique_csv(row['analysts'])
+        row['audit_trail'] = '; '.join(row['audit_events']) or 'No counted return/resubmission events'
+        row['has_quality_flags'] = bool(row['quality_flags'])
+        row['quality_flags_display'] = '; '.join(row['quality_flags']) or 'None'
+        sample_rows.append(row)
+
+    sample_rows.sort(key=lambda r: r['lab_number'])
+    analyst_breakdown = []
+    for entry in analyst_data.values():
+        analyst_breakdown.append({
+            'analyst': entry['analyst'],
+            'sample_count': len(entry['samples']),
+            'preliminary_returns': entry['preliminary_returns'],
+            'other_resubmissions': entry['other_resubmissions'],
+            'combined_total': entry['combined_total'],
+            'audit_event_ids': ', '.join(entry['event_ids']),
+        })
+    analyst_breakdown.sort(key=lambda r: r['analyst'].lower())
+
+    totals = {
+        'samples': len(sample_rows),
+        'samples_with_prelim_returns': sum(1 for r in sample_rows if r['preliminary_returns'] > 0),
+        'preliminary_returns': sum(r['preliminary_returns'] for r in sample_rows),
+        'other_resubmissions': sum(r['other_resubmissions'] for r in sample_rows),
+        'combined_total': sum(r['combined_total'] for r in sample_rows),
+    }
+    return {
+        'sample_rows': sample_rows,
+        'analyst_breakdown': analyst_breakdown,
+        'quality_issues': quality_issues,
+        'exclusions': exclusions,
+        'totals': totals,
+    }
+
+
 def _qa_reviewer_stats(assignment_ids):
     """Return a list of per-reviewer dicts for preliminary reviews.
 
@@ -2814,9 +3122,10 @@ def qa_performance_summary():
                             quarter if quarter in (1, 2, 3, 4) else None)
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+    corrected_report = _qa_corrected_sample_report(assignments)
 
     # Fetch per-assignment preliminary return counts from ReviewHistory (authoritative source).
-    # Using ReviewHistory.action in ('returned', 'not_accepted') is more accurate than
+    # Using ReviewHistory.action == 'returned' is more accurate than
     # counting DocumentVersion resubmissions, because it captures samples that have been
     # returned but not yet resubmitted by the analyst.
     all_ids = [a.id for a in assignments]
@@ -2918,6 +3227,8 @@ def qa_performance_summary():
         available_years=available_years,
         totals=totals,
         count_by=count_by,
+        corrected_report=corrected_report,
+        corrected_report_preview_rows=corrected_report['sample_rows'][:10],
         reviewer_stats=reviewer_stats,
         prelim_analyst_list=prelim_analyst_list,
     )
@@ -2943,6 +3254,7 @@ def qa_performance_download():
     q = _fiscal_year_filter(q, SampleAssignment.assigned_date, year,
                             quarter if quarter in (1, 2, 3, 4) else None)
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+    corrected_report = _qa_corrected_sample_report(assignments)
 
     all_ids = [a.id for a in assignments]
     prelim_counts = _preliminary_return_counts_for_assignments(all_ids)
@@ -3012,7 +3324,69 @@ def qa_performance_download():
     q_label = f' Q{quarter}' if quarter in (1, 2, 3, 4) else ''
     writer.writerow([f'QA Performance Summary — {fy_label}{q_label}'])
     writer.writerow([f'Counts based on: {count_label}'])
+    writer.writerow(['Reconciliation'])
+    writer.writerow(['Previous figures could be inaccurate when they collapsed a sample to returned/not returned.'])
+    writer.writerow(['Previous figures could also be inaccurate when they counted report uploads instead of ReviewHistory return events.'])
+    writer.writerow(['Exact prior figures are not determinable from available records.'])
     writer.writerow([])
+    writer.writerow(['Corrected Sample-Level Summary'])
+    writer.writerow(['Unique Samples', corrected_report['totals']['samples']])
+    writer.writerow(['Samples with Preliminary Review Returns', corrected_report['totals']['samples_with_prelim_returns']])
+    writer.writerow(['Preliminary Review Return Events', corrected_report['totals']['preliminary_returns']])
+    writer.writerow(['Other Resubmission Events', corrected_report['totals']['other_resubmissions']])
+    writer.writerow(['Combined Return/Resubmission Events', corrected_report['totals']['combined_total']])
+    writer.writerow([])
+    writer.writerow(['Sample-Level Return Count and Audit Trail'])
+    writer.writerow([
+        'Sample ID', 'Sample Name', 'Laboratory', 'Analysts Involved',
+        'Preliminary Review Returns',
+        'Preliminary Resubmission Uploads (excluded from combined total)',
+        'Senior Chemist Review Resubmissions', 'Deputy Review Resubmissions',
+        'HOD Review Resubmissions', 'Unspecified Resubmissions',
+        'Other Resubmissions', 'Combined Total',
+        'Preliminary Return ReviewHistory IDs', 'Other Resubmission DocumentVersion IDs',
+        'Record-Level Audit Trail', 'Data Quality Flags',
+    ])
+    for row in corrected_report['sample_rows']:
+        bdown = row['type_breakdown']
+        writer.writerow([
+            row['lab_number'], row['sample_name'], row['lab_type'], row['analysts_display'],
+            row['preliminary_returns'], bdown.get('preliminary', 0),
+            bdown.get('technical', 0), bdown.get('deputy', 0),
+            bdown.get('hod', 0), bdown.get('unspecified', 0),
+            row['other_resubmissions'], row['combined_total'],
+            ', '.join(str(i) for i in row['preliminary_return_ids']),
+            ', '.join(str(i) for i in row['other_resubmission_ids']),
+            row['audit_trail'], row['quality_flags_display'],
+        ])
+    writer.writerow([])
+    writer.writerow(['Breakdown by Analyst'])
+    writer.writerow([
+        'Analyst', 'Samples Involved', 'Preliminary Review Returns',
+        'Other Resubmissions', 'Combined Total', 'Audit Event IDs',
+    ])
+    for row in corrected_report['analyst_breakdown']:
+        writer.writerow([
+            row['analyst'], row['sample_count'], row['preliminary_returns'],
+            row['other_resubmissions'], row['combined_total'], row['audit_event_ids'],
+        ])
+    writer.writerow([])
+    writer.writerow(['Duplicates, Exclusions, and Data-Quality Issues'])
+    writer.writerow(['Sample ID', 'Source', 'Event/Row ID', 'Type', 'Detail'])
+    for row in corrected_report['exclusions']:
+        writer.writerow([
+            row['lab_number'], row['source'], row['event_id'], 'Excluded',
+            row['reason'],
+        ])
+    for row in corrected_report['quality_issues']:
+        writer.writerow([
+            row['lab_number'], row['source'], row['event_id'], row['issue_type'],
+            row['detail'],
+        ])
+    if not corrected_report['exclusions'] and not corrected_report['quality_issues']:
+        writer.writerow(['not determinable from available records', '', '', 'None flagged', 'No duplicate, conflicting, incomplete, or ambiguous records detected by report rules'])
+    writer.writerow([])
+    writer.writerow(['Legacy Analyst Summary (recalculated with Preliminary Review returns from ReviewHistory only)'])
     writer.writerow([
         'Analyst', 'Food', 'Tox', 'Pharm',
         'Accepted on First Submission', 'Returned for Correction',

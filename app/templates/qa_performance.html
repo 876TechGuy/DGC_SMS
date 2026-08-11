@@ -105,6 +105,92 @@
     </div>
 </div>
 
+<!-- ── Corrected Sample-Level QA Counts ──────────────────────── -->
+<div class="card shadow-sm mb-4 border-primary">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+            <i class="bi bi-journal-check me-1"></i>Corrected Sample-Level Return Count
+        </span>
+        <small class="text-muted">Source of truth: ReviewHistory return events + clearly linked DocumentVersion resubmissions</small>
+    </div>
+    <div class="card-body py-3">
+        <div class="row g-3 text-center">
+            <div class="col-6 col-md">
+                <div class="fw-bold fs-4">{{ corrected_report.totals.samples }}</div>
+                <small class="text-muted">Unique Samples</small>
+            </div>
+            <div class="col-6 col-md">
+                <div class="fw-bold fs-4 text-danger" data-testid="qa-prelim-return-total">{{ corrected_report.totals.preliminary_returns }}</div>
+                <small class="text-muted">Preliminary Return Events</small>
+            </div>
+            <div class="col-6 col-md">
+                <div class="fw-bold fs-4 text-warning">{{ corrected_report.totals.other_resubmissions }}</div>
+                <small class="text-muted">Other Resubmissions</small>
+            </div>
+            <div class="col-6 col-md">
+                <div class="fw-bold fs-4 text-primary">{{ corrected_report.totals.combined_total }}</div>
+                <small class="text-muted">Combined Total</small>
+            </div>
+            <div class="col-6 col-md">
+                <div class="fw-bold fs-4 text-secondary">{{ corrected_report.quality_issues | length }}</div>
+                <small class="text-muted">Data-Quality Flags</small>
+            </div>
+        </div>
+        <p class="small text-muted mt-3 mb-0">
+            Preliminary returns count each distinct <code>ReviewHistory</code> row where
+            <code>review_type='preliminary'</code> and <code>action='returned'</code>.
+            Preliminary resubmission uploads are shown in the CSV audit trail but excluded from the combined total to avoid double-counting.
+        </p>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Sample ID</th>
+                    <th>Analysts Involved</th>
+                    <th class="text-center">Prelim Returns</th>
+                    <th class="text-center">Senior Chemist Review</th>
+                    <th class="text-center">Deputy</th>
+                    <th class="text-center">HOD</th>
+                    <th class="text-center">Unspecified</th>
+                    <th class="text-center">Combined</th>
+                    <th>Audit / Flags</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in corrected_report_preview_rows %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ row.lab_number }}</td>
+                    <td class="small">{{ row.analysts_display }}</td>
+                    <td class="text-center">{{ row.preliminary_returns }}</td>
+                    <td class="text-center">{{ row.type_breakdown.technical }}</td>
+                    <td class="text-center">{{ row.type_breakdown.deputy }}</td>
+                    <td class="text-center">{{ row.type_breakdown.hod }}</td>
+                    <td class="text-center">{{ row.type_breakdown.unspecified }}</td>
+                    <td class="text-center fw-semibold">{{ row.combined_total }}</td>
+                    <td class="small">
+                        {% if row.has_quality_flags %}
+                        <span class="text-warning">{{ row.quality_flags_display }}</span>
+                        {% else %}
+                        <span class="text-muted">{{ (row.preliminary_return_ids + row.other_resubmission_ids) | length }} counted row(s)</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-3">No sample data found for this period.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if corrected_report.sample_rows | length > 10 %}
+    <div class="card-footer small text-muted">
+        Showing first 10 samples. Export CSV for the full record-level audit trail, exclusions, and analyst breakdown.
+    </div>
+    {% endif %}
+</div>
+
 <!-- ── Main Performance Table ───────────────────────────────── -->
 <div class="card shadow-sm mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -265,7 +351,7 @@
             <li><strong>Counting method: by test assignment</strong> — each individual test assignment is counted separately.</li>
             {% endif %}
             <li><strong>Accepted on First Submission</strong> — no preliminary review returns recorded.</li>
-            <li><strong>Returned for Correction</strong> — at least one preliminary review return was recorded.</li>
+            <li><strong>Returned for Correction</strong> — at least one Preliminary Review return event was recorded for the sample or assignment.</li>
             <li><strong>Return reasons</strong> are derived automatically from reviewer comments. Export the CSV for full details.</li>
             <li class="mt-1">The counting method can be changed by an administrator in
                 <a href="{{ url_for('main.settings') }}">System Settings</a>.</li>
