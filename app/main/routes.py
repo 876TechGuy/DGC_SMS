@@ -9,6 +9,8 @@ import enum
 import io
 import json
 
+from sqlalchemy import extract as sa_extract
+
 from app import db
 from app.main import main_bp
 from app.models import (
@@ -2940,15 +2942,18 @@ def _qa_reviewer_stats(assignment_ids):
             'analyst': analyst_name,
             'test_name': test_name,
             'action': row.action,
-            'reviewed_at': row.reviewed_at.strftime('%Y-%m-%d %H:%M') if row.reviewed_at else '—',
+            'reviewed_at': row.reviewed_at.strftime('%Y-%m-%d %H:%M') if row.reviewed_at else '',
+            '_sort_dt': row.reviewed_at or datetime.min,
         })
 
     result = sorted(data.values(), key=lambda x: x['name'].lower())
     for entry in result:
         t = entry['total']
         entry['return_rate'] = round((entry['returned'] + entry['not_accepted']) / t * 100, 1) if t else 0.0
-        # Sort reviews newest-first for the modal
-        entry['reviews'].sort(key=lambda r: r['reviewed_at'], reverse=True)
+        # Sort reviews newest-first for the modal using the raw datetime, then drop the sort key
+        entry['reviews'].sort(key=lambda r: r['_sort_dt'], reverse=True)
+        for r in entry['reviews']:
+            del r['_sort_dt']
     return result
 
 
@@ -3154,7 +3159,6 @@ def qa_performance_summary():
     )
     if month and 1 <= month <= 12:
         # Month filter: full fiscal year but restrict to the selected calendar month
-        from sqlalchemy import extract as sa_extract
         fy_start, fy_end = fiscal_year_date_range(year, None)
         q = q.filter(
             SampleAssignment.assigned_date >= fy_start,

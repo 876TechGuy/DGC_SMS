@@ -618,6 +618,8 @@
         not_accepted: '<span class="badge bg-danger">Not Accepted</span>',
     };
 
+    function setText(el, val) { el.textContent = val; }
+
     document.querySelectorAll('.reviewer-row').forEach(function (row) {
         row.addEventListener('click', function () {
             const name    = this.dataset.reviewer;
@@ -631,19 +633,47 @@
             tbody.innerHTML = '';
             if (reviews.length === 0) {
                 const tr = document.createElement('tr');
-                tr.innerHTML = '<td colspan="5" class="text-center text-muted py-3">No review records found.</td>';
+                const td = document.createElement('td');
+                td.setAttribute('colspan', '5');
+                td.className = 'text-center text-muted py-3';
+                td.textContent = 'No review records found.';
+                tr.appendChild(td);
                 tbody.appendChild(tr);
             } else {
                 reviews.forEach(function (r) {
                     const tr = document.createElement('tr');
-                    const badge = ACTION_BADGE[r.action] ||
-                        '<span class="badge bg-secondary">' + r.action + '</span>';
-                    tr.innerHTML =
-                        '<td class="ps-3 fw-semibold">' + r.lab_number + '</td>' +
-                        '<td>' + r.analyst + '</td>' +
-                        '<td>' + r.test_name + '</td>' +
-                        '<td class="text-center">' + badge + '</td>' +
-                        '<td>' + r.reviewed_at + '</td>';
+
+                    // Lab number cell
+                    const tdLab = document.createElement('td');
+                    tdLab.className = 'ps-3 fw-semibold';
+                    tdLab.textContent = r.lab_number;
+                    tr.appendChild(tdLab);
+
+                    // Analyst cell
+                    const tdAnalyst = document.createElement('td');
+                    tdAnalyst.textContent = r.analyst;
+                    tr.appendChild(tdAnalyst);
+
+                    // Test name cell
+                    const tdTest = document.createElement('td');
+                    tdTest.textContent = r.test_name;
+                    tr.appendChild(tdTest);
+
+                    // Action badge cell (controlled badge HTML, not user data)
+                    const tdAction = document.createElement('td');
+                    tdAction.className = 'text-center';
+                    tdAction.innerHTML = ACTION_BADGE[r.action] ||
+                        '<span class="badge bg-secondary"></span>';
+                    if (!ACTION_BADGE[r.action]) {
+                        tdAction.querySelector('span').textContent = r.action;
+                    }
+                    tr.appendChild(tdAction);
+
+                    // Date cell
+                    const tdDate = document.createElement('td');
+                    tdDate.textContent = r.reviewed_at;
+                    tr.appendChild(tdDate);
+
                     tbody.appendChild(tr);
                 });
             }
