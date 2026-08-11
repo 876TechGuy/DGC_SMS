@@ -9,10 +9,10 @@
             Laboratory Quality Assurance — Analyst Report Summary
             &nbsp;|&nbsp;
             <strong>{{ year }}/{{ year + 1 }}</strong>
-            {% if quarter %}&nbsp;— Q{{ quarter }}{% endif %}
+            {% if month %}&nbsp;— {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %}&nbsp;— Q{{ quarter }}{% endif %}
         </p>
     </div>
-    <a href="{{ url_for('main.qa_performance_download', year=year, quarter=quarter) }}"
+    <a href="{{ url_for('main.qa_performance_download', year=year, quarter=quarter, month=month) }}"
        class="btn btn-outline-primary btn-sm">
         <i class="bi bi-download me-1"></i>Export CSV
     </a>
@@ -22,7 +22,7 @@
 <div class="card mb-4 shadow-sm">
     <div class="card-body py-2">
         <form method="GET" id="qa-filter-form" class="row g-2 align-items-end">
-            <div class="col-sm-6 col-md-3">
+            <div class="col-sm-6 col-md-2">
                 <label class="form-label small fw-semibold mb-1">Financial Year</label>
                 <select name="year" class="form-select form-select-sm" onchange="this.form.submit()">
                     {% for y in available_years %}
@@ -30,7 +30,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-sm-6 col-md-3">
+            <div class="col-sm-6 col-md-2">
                 <label class="form-label small fw-semibold mb-1">Quarter</label>
                 <select name="quarter" class="form-select form-select-sm" onchange="this.form.submit()">
                     <option value="0" {% if quarter == 0 %}selected{% endif %}>Full Year</option>
@@ -38,6 +38,24 @@
                     <option value="2" {% if quarter == 2 %}selected{% endif %}>Q2 (Jul – Sep)</option>
                     <option value="3" {% if quarter == 3 %}selected{% endif %}>Q3 (Oct – Dec)</option>
                     <option value="4" {% if quarter == 4 %}selected{% endif %}>Q4 (Jan – Mar)</option>
+                </select>
+            </div>
+            <div class="col-sm-6 col-md-2">
+                <label class="form-label small fw-semibold mb-1">Month</label>
+                <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="0" {% if month == 0 %}selected{% endif %}>All Months</option>
+                    <option value="1"  {% if month == 1  %}selected{% endif %}>January</option>
+                    <option value="2"  {% if month == 2  %}selected{% endif %}>February</option>
+                    <option value="3"  {% if month == 3  %}selected{% endif %}>March</option>
+                    <option value="4"  {% if month == 4  %}selected{% endif %}>April</option>
+                    <option value="5"  {% if month == 5  %}selected{% endif %}>May</option>
+                    <option value="6"  {% if month == 6  %}selected{% endif %}>June</option>
+                    <option value="7"  {% if month == 7  %}selected{% endif %}>July</option>
+                    <option value="8"  {% if month == 8  %}selected{% endif %}>August</option>
+                    <option value="9"  {% if month == 9  %}selected{% endif %}>September</option>
+                    <option value="10" {% if month == 10 %}selected{% endif %}>October</option>
+                    <option value="11" {% if month == 11 %}selected{% endif %}>November</option>
+                    <option value="12" {% if month == 12 %}selected{% endif %}>December</option>
                 </select>
             </div>
             <div class="col-sm-6 col-md-4">
@@ -198,7 +216,7 @@
             <i class="bi bi-table me-1"></i>
             Analyst Performance Table
             <span class="text-muted fw-normal ms-1 small">
-                — {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}
+                — {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}
                 {% if search %} — filtered: "{{ search }}"{% endif %}
             </span>
         </span>
@@ -364,7 +382,7 @@
 <div class="card shadow-sm mt-4">
     <div class="card-header fw-semibold">
         <i class="bi bi-clipboard2-data me-1"></i>Preliminary Review Performance
-        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}</span>
+        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}</span>
     </div>
     <div class="table-responsive">
         <table class="table table-hover table-bordered align-middle mb-0" id="prelim-perf-table">
@@ -483,10 +501,11 @@
 <div class="card shadow-sm mt-4">
     <div class="card-header fw-semibold">
         <i class="bi bi-person-check me-1"></i>Preliminary Review Activity
-        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if quarter %} Q{{ quarter }}{% endif %}</span>
+        <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}</span>
+        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click a row to see the reviewed reports</span>
     </div>
     <div class="table-responsive">
-        <table class="table table-hover table-bordered align-middle mb-0">
+        <table class="table table-hover table-bordered align-middle mb-0" id="reviewer-stats-table">
             <thead class="table-secondary">
                 <tr>
                     <th class="ps-3" style="min-width:170px;">Reviewer</th>
@@ -499,8 +518,13 @@
             </thead>
             <tbody>
                 {% for rv in reviewer_stats %}
-                <tr>
-                    <td class="ps-3 fw-semibold">{{ rv.name }}</td>
+                <tr class="reviewer-row" style="cursor:pointer;"
+                    data-reviewer="{{ rv.name | e }}"
+                    data-reviews="{{ rv.reviews | tojson | e }}">
+                    <td class="ps-3 fw-semibold">
+                        {{ rv.name }}
+                        <i class="bi bi-chevron-right ms-1 text-muted" style="font-size:0.75rem;"></i>
+                    </td>
                     <td class="text-center">
                         <span class="badge rounded-pill bg-secondary fs-6 px-3">{{ rv.total }}</span>
                     </td>
@@ -553,5 +577,111 @@
         </table>
     </div>
 </div>
+
+<!-- ── Reviewer Reports Modal ────────────────────────────────── -->
+<div class="modal fade" id="reviewerReportsModal" tabindex="-1" aria-labelledby="reviewerReportsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reviewerReportsModalLabel">
+                    <i class="bi bi-person-check me-2"></i>Reports Reviewed by <span id="reviewerModalName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-sm table-bordered align-middle mb-0" id="reviewerReportsTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3">Lab Number</th>
+                            <th>Analyst</th>
+                            <th>Test</th>
+                            <th class="text-center">Action</th>
+                            <th>Date Reviewed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reviewerReportsBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small me-auto" id="reviewerReportsCount"></span>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const ACTION_BADGE = {
+        approved:     '<span class="badge bg-success">Approved</span>',
+        returned:     '<span class="badge bg-warning text-dark">Returned</span>',
+        not_accepted: '<span class="badge bg-danger">Not Accepted</span>',
+    };
+
+    function setText(el, val) { el.textContent = val; }
+
+    document.querySelectorAll('.reviewer-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+            const name    = this.dataset.reviewer;
+            const reviews = JSON.parse(this.dataset.reviews);
+
+            document.getElementById('reviewerModalName').textContent = name;
+            document.getElementById('reviewerReportsCount').textContent =
+                reviews.length + ' review' + (reviews.length !== 1 ? 's' : '');
+
+            const tbody = document.getElementById('reviewerReportsBody');
+            tbody.innerHTML = '';
+            if (reviews.length === 0) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.setAttribute('colspan', '5');
+                td.className = 'text-center text-muted py-3';
+                td.textContent = 'No review records found.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+            } else {
+                reviews.forEach(function (r) {
+                    const tr = document.createElement('tr');
+
+                    // Lab number cell
+                    const tdLab = document.createElement('td');
+                    tdLab.className = 'ps-3 fw-semibold';
+                    tdLab.textContent = r.lab_number;
+                    tr.appendChild(tdLab);
+
+                    // Analyst cell
+                    const tdAnalyst = document.createElement('td');
+                    tdAnalyst.textContent = r.analyst;
+                    tr.appendChild(tdAnalyst);
+
+                    // Test name cell
+                    const tdTest = document.createElement('td');
+                    tdTest.textContent = r.test_name;
+                    tr.appendChild(tdTest);
+
+                    // Action badge cell (controlled badge HTML, not user data)
+                    const tdAction = document.createElement('td');
+                    tdAction.className = 'text-center';
+                    tdAction.innerHTML = ACTION_BADGE[r.action] ||
+                        '<span class="badge bg-secondary"></span>';
+                    if (!ACTION_BADGE[r.action]) {
+                        tdAction.querySelector('span').textContent = r.action;
+                    }
+                    tr.appendChild(tdAction);
+
+                    // Date cell
+                    const tdDate = document.createElement('td');
+                    tdDate.textContent = r.reviewed_at;
+                    tr.appendChild(tdDate);
+
+                    tbody.appendChild(tr);
+                });
+            }
+
+            new bootstrap.Modal(document.getElementById('reviewerReportsModal')).show();
+        });
+    });
+}());
+</script>
 {% endif %}
 {% endblock %}
