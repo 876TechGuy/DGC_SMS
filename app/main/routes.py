@@ -2144,7 +2144,6 @@ def analyst_report():
             q = q.filter(Sample.status.in_(resolved_statuses))
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
-    corrected_report = _qa_corrected_sample_report(assignments)
 
     # Group by analyst; track per-status counts for breakdown display
     analyst_data = {}
@@ -3105,9 +3104,10 @@ def qa_performance_summary():
                             quarter if quarter in (1, 2, 3, 4) else None)
 
     assignments = q.order_by(SampleAssignment.assigned_date.desc()).all()
+    corrected_report = _qa_corrected_sample_report(assignments)
 
     # Fetch per-assignment preliminary return counts from ReviewHistory (authoritative source).
-    # Using ReviewHistory.action in ('returned', 'not_accepted') is more accurate than
+    # Using ReviewHistory.action == 'returned' is more accurate than
     # counting DocumentVersion resubmissions, because it captures samples that have been
     # returned but not yet resubmitted by the analyst.
     all_ids = [a.id for a in assignments]
