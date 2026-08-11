@@ -2752,14 +2752,14 @@ def _qa_corrected_sample_report(assignments):
             continue
         raw_rtype = doc.resubmission_type
         rtype = raw_rtype or 'unspecified'
-        if rtype not in type_keys:
+        if raw_rtype and raw_rtype not in type_keys:
             add_issue(
                 doc.sample_id, 'Ambiguous record', 'DocumentVersion',
-                doc.id, f'Unexpected resubmission type "{rtype}"; counted as unspecified',
+                doc.id, f'Unexpected resubmission type "{raw_rtype}"; counted as unspecified',
             )
             rtype = 'unspecified'
         doc_duplicate_keys.setdefault(
-            (doc.sample_id, doc.assignment_id, doc.version_number, doc.file_path, rtype),
+            (doc.sample_id, doc.assignment_id, doc.version_number, doc.file_path, raw_rtype),
             [],
         ).append(doc.id)
 
@@ -3228,6 +3228,7 @@ def qa_performance_summary():
         totals=totals,
         count_by=count_by,
         corrected_report=corrected_report,
+        corrected_report_preview_rows=corrected_report['sample_rows'][:10],
         reviewer_stats=reviewer_stats,
         prelim_analyst_list=prelim_analyst_list,
     )
