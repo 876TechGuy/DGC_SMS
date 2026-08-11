@@ -2692,6 +2692,7 @@ def _qa_corrected_sample_report(assignments):
         ).all()
         assignment_by_id.update({a.id: a for a in extra_assignments})
 
+    prelim_by_id = {event.id: event for event in prelim_events}
     prelim_duplicate_keys = {}
     for event in prelim_events:
         key = (
@@ -2734,7 +2735,7 @@ def _qa_corrected_sample_report(assignments):
 
     for dup_ids in prelim_duplicate_keys.values():
         if len(dup_ids) > 1:
-            first = db.session.get(ReviewHistory, dup_ids[0])
+            first = prelim_by_id.get(dup_ids[0])
             if first:
                 add_issue(
                     first.sample_id, 'Possible duplicate', 'ReviewHistory',
@@ -2742,14 +2743,20 @@ def _qa_corrected_sample_report(assignments):
                     'Multiple Preliminary Review return rows share the same assignment, reviewer, time, and comments',
                 )
 
+    doc_by_id = {doc.id: doc for doc in resubmissions}
     doc_duplicate_keys = {}
     for doc in resubmissions:
         row = rows.get(doc.sample_id)
         if not row:
             continue
-        rtype = doc.resubmission_type or 'unspecified'
-        if rtype not in row['type_breakdown']:
-            row['type_breakdown'][rtype] = 0
+        raw_rtype = doc.resubmission_type
+        rtype = raw_rtype or 'unspecified'
+        if rtype not in type_keys:
+            add_issue(
+                doc.sample_id, 'Ambiguous record', 'DocumentVersion',
+                doc.id, f'Unexpected resubmission type "{rtype}"; counted as unspecified',
+            )
+            rtype = 'unspecified'
         doc_duplicate_keys.setdefault(
             (doc.sample_id, doc.assignment_id, doc.version_number, doc.file_path, rtype),
             [],
@@ -2774,7 +2781,7 @@ def _qa_corrected_sample_report(assignments):
                 doc.id, 'Resubmission row is missing assignment_id; analyst is not determinable',
             )
 
-        if not doc.resubmission_type:
+        if not raw_rtype:
             add_issue(
                 doc.sample_id, 'Ambiguous record', 'DocumentVersion',
                 doc.id, 'Resubmission type is missing; counted as unspecified',
@@ -2810,7 +2817,7 @@ def _qa_corrected_sample_report(assignments):
 
     for dup_ids in doc_duplicate_keys.values():
         if len(dup_ids) > 1:
-            first = db.session.get(DocumentVersion, dup_ids[0])
+            first = doc_by_id.get(dup_ids[0])
             if first:
                 add_issue(
                     first.sample_id, 'Possible duplicate', 'DocumentVersion',
@@ -3168,9 +3175,7 @@ def qa_performance_summary():
                 any_returned = any(prelim_counts.get(aid, 0) > 0
                                    for aid in sdata['assignment_ids'])
                 if any_returned:
-                    entry['returned'] += sum(
-                        prelim_counts.get(aid, 0) for aid in sdata['assignment_ids']
-                    )
+                    entry['returned'] += 1
                 else:
                     entry['accepted_first'] += 1
             del entry['_sample_map']
@@ -3289,9 +3294,7 @@ def qa_performance_download():
                 any_returned = any(prelim_counts.get(aid, 0) > 0
                                    for aid in sdata['assignment_ids'])
                 if any_returned:
-                    entry['returned'] += sum(
-                        prelim_counts.get(aid, 0) for aid in sdata['assignment_ids']
-                    )
+                    entry['returned'] += 1
                 else:
                     entry['accepted_first'] += 1
             del entry['_sample_map']
@@ -3383,7 +3386,7 @@ def qa_performance_download():
     writer.writerow(['Legacy Analyst Summary (recalculated with Preliminary Review returns from ReviewHistory only)'])
     writer.writerow([
         'Analyst', 'Food', 'Tox', 'Pharm',
-        'Accepted on First Submission', 'Preliminary Return Events',
+        'Accepted on First Submission', 'Returned for Correction',
         'Comments / Summary of Reasons for Returned Report',
     ])
     for row in rows:
