@@ -789,3 +789,142 @@ def test_analyst_report_filter_unspecified_counts_null_types(app, client):
     # The page always shows return-by-stage breakdown columns
     assert b'Returned for Correction' in resp.data
 
+
+# ---------------------------------------------------------------------------
+# QA Performance Summary — corrected sample-level return counts
+# ---------------------------------------------------------------------------
+
+def _setup_qa_corrected_return_data(app):
+    """Create one sample with repeated preliminary returns and other resubmissions."""
+    from app.models import (
+        AssignmentStatus, DocumentVersion, ReviewHistory,
+    )
+    with app.app_context():
+        admin = _create_user(Role.ADMIN, username='admin_qa')
+        chemist = _create_user(Role.CHEMIST, Branch.PHARMACEUTICAL, username='chemist_qa')
+        reviewer = _create_user(Role.OFFICER, username='reviewer_qa')
+
+        sample = Sample(
+            lab_number='QA-RET-001',
+            sample_name='QA Return Count Test',
+            sample_type=Branch.PHARMACEUTICAL,
+            date_received=date(2026, 4, 1),
+            uploaded_by=admin.id,
+            status=SampleStatus.REGISTERED,
+        )
+        db.session.add(sample)
+        db.session.flush()
+
+        assignment = SampleAssignment(
+            sample_id=sample.id,
+            chemist_id=chemist.id,
+            assigned_by=admin.id,
+            test_name='Assay',
+            assigned_date=datetime(2026, 4, 2, tzinfo=timezone.utc),
+            status=AssignmentStatus.RETURNED,
+            report_submitted_at=datetime(2026, 4, 3, tzinfo=timezone.utc),
+        )
+        db.session.add(assignment)
+        db.session.flush()
+
+        # Two distinct Preliminary Review return events for the same sample.
+        db.session.add(ReviewHistory(
+            sample_id=sample.id,
+            assignment_id=assignment.id,
+            review_type='preliminary',
+            review_number=1,
+            action='returned',
+            reviewer_id=reviewer.id,
+            reviewed_at=datetime(2026, 4, 4, 9, tzinfo=timezone.utc),
+            comments='Fix calculation',
+        ))
+        db.session.add(ReviewHistory(
+            sample_id=sample.id,
+            assignment_id=assignment.id,
+            review_type='preliminary',
+            review_number=2,
+            action='returned',
+            reviewer_id=reviewer.id,
+            reviewed_at=datetime(2026, 4, 6, 10, tzinfo=timezone.utc),
+            comments='Fix units',
+        ))
+        # Not accepted is not a return/resubmission event and must not inflate the return count.
+        db.session.add(ReviewHistory(
+            sample_id=sample.id,
+            assignment_id=assignment.id,
+            review_type='preliminary',
+            review_number=3,
+            action='not_accepted',
+            reviewer_id=reviewer.id,
+            reviewed_at=datetime(2026, 4, 7, 11, tzinfo=timezone.utc),
+            comments='Rejected',
+        ))
+
+        # Preliminary upload corroborates a return but is excluded from combined totals.
+        db.session.add(DocumentVersion(
+            sample_id=sample.id,
+            document_type='report',
+            version_number=2,
+            file_path='/fake/prelim.pdf',
+            original_name='prelim.pdf',
+            upload_label='resubmission',
+            resubmission_type='preliminary',
+            uploaded_by=chemist.id,
+            assignment_id=assignment.id,
+        ))
+        # Other valid resubmissions clearly linked to the same Sample ID.
+        db.session.add(DocumentVersion(
+            sample_id=sample.id,
+            document_type='report',
+            version_number=3,
+            file_path='/fake/technical.pdf',
+            original_name='technical.pdf',
+            upload_label='resubmission',
+            resubmission_type='technical',
+            uploaded_by=chemist.id,
+            assignment_id=assignment.id,
+        ))
+        db.session.add(DocumentVersion(
+            sample_id=sample.id,
+            document_type='report',
+            version_number=4,
+            file_path='/fake/legacy.pdf',
+            original_name='legacy.pdf',
+            upload_label='resubmission',
+            resubmission_type=None,
+            uploaded_by=chemist.id,
+            assignment_id=None,
+        ))
+        db.session.commit()
+
+
+def test_qa_performance_page_uses_corrected_sample_event_counts(app, client):
+    _setup_qa_corrected_return_data(app)
+    _login(client, 'admin_qa')
+
+    resp = client.get('/reports/qa-performance?year=2026')
+
+    assert resp.status_code == 200
+    assert b'Corrected Sample-Level Return Count' in resp.data
+    assert b'QA-RET-001' in resp.data
+    # Two ReviewHistory returned rows are counted, not a boolean sample flag.
+    assert b'Preliminary Return Events' in resp.data
+    assert b'>2</div>' in resp.data
+
+
+def test_qa_performance_download_includes_audit_breakdown_and_exclusions(app, client):
+    _setup_qa_corrected_return_data(app)
+    _login(client, 'admin_qa')
+
+    resp = client.get('/reports/qa-performance/download?year=2026')
+
+    assert resp.status_code == 200
+    data = resp.data.decode()
+    assert 'Preliminary Review Return Events,2' in data
+    assert 'Other Resubmission Events,2' in data
+    assert 'Combined Return/Resubmission Events,4' in data
+    assert 'QA-RET-001' in data
+    assert 'DocumentVersion' in data
+    assert 'Preliminary resubmission upload excluded from combined total' in data
+    assert 'Resubmission type is missing; counted as unspecified' in data
+    assert 'ReviewHistory#' in data
