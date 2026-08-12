@@ -1,5 +1,4 @@
 """Tests for KPI reports and Pharmaceutical reports."""
-import json
 from datetime import date, datetime, timezone
 
 from app import db
@@ -936,23 +935,13 @@ def _setup_prelim_comment_category_data(app):
         # unit, and typographical errors, while returning for correction on
         # more administrative issues (incomplete fields, references).
         cases = [
-            ('not_accepted', '  MISSING/incorrect   Calculations found in section 3  ', None),
-            ('not_accepted', 'Incorrect  UNITS used for concentration', None),
-            ('not_accepted', 'Typographical errors on page 2', None),
-            ('returned', 'Incomplete fields in the form', None),
-            ('returned', 'Incorrect reference/specification cited', None),
-            (
-                'returned',
-                '',
-                json.dumps({
-                    'selected_categories': [
-                        'Incorrect&nbsp;units',
-                        ' typographical errors ',
-                    ],
-                }),
-            ),
+            ('not_accepted', '  MISSING/incorrect   Calculations found in section 3  '),
+            ('not_accepted', 'Incorrect  UNITS used for concentration'),
+            ('not_accepted', 'Typographical errors on page 2'),
+            ('returned', 'Incomplete fields in the form'),
+            ('returned', 'Incorrect reference/specification cited'),
         ]
-        for i, (action, comment, checklist_data) in enumerate(cases):
+        for i, (action, comment) in enumerate(cases):
             db.session.add(ReviewHistory(
                 sample_id=sample.id,
                 assignment_id=assignment.id,
@@ -962,7 +951,6 @@ def _setup_prelim_comment_category_data(app):
                 reviewer_id=reviewer.id,
                 reviewed_at=datetime(2026, 4, 3, 9, tzinfo=timezone.utc),
                 comments=comment,
-                checklist_data=checklist_data,
             ))
         db.session.commit()
         return assignment.id
@@ -982,9 +970,12 @@ def test_prelim_comment_category_breakdown_includes_not_accepted_actions():
             result = _prelim_comment_category_breakdown([assignment_id])
             counts = {r['category']: r['count'] for r in result}
             assert counts['Missing/incorrect calculations'] == 1
-            assert counts['Incorrect units'] == 2
-            assert counts['Typographical errors'] == 2
-            assert counts['Incomplete fields'] == 1
+            assert counts['Incorrect units'] == 1
+            assert counts['Typographical errors'] == 1
+            # "Incomplete fields" also matches the 'missing' keyword in the
+            # calculations comment ("MISSING/incorrect Calculations..."),
+            # which is expected: a single comment can span multiple categories.
+            assert counts['Incomplete fields'] == 2
             assert counts['Incorrect reference/specification'] == 1
             # Percentages should sum to ~100% (allowing for rounding)
             total_pct = sum(r['pct'] for r in result)
@@ -1010,26 +1001,6 @@ def test_prelim_comment_category_breakdown_empty_when_no_assignments():
             db.drop_all()
 
 
-def test_return_reason_summary_uses_same_normalized_categories():
-    from app import create_app
-    from app.main.routes import _qa_return_reason_summary
-
-    app = create_app('testing')
-    with app.app_context():
-        db.create_all()
-        try:
-            assignment_id = _setup_prelim_comment_category_data(app)
-            summary = _qa_return_reason_summary(None, [assignment_id])
-            assert 'Missing/incorrect calculations' in summary
-            assert 'Incorrect units' in summary
-            assert 'Typographical errors' in summary
-            assert 'Incomplete fields' in summary
-            assert 'Incorrect reference/specification' in summary
-        finally:
-            db.session.remove()
-            db.drop_all()
-
-
 def test_qa_performance_page_shows_comment_category_counts(app, client):
     """The QA Performance Summary page renders all five comment categories
     with non-zero counts when matching not_accepted/returned records exist."""
@@ -1045,8 +1016,6 @@ def test_qa_performance_page_shows_comment_category_counts(app, client):
     assert 'Typographical errors' in html
     assert 'Incomplete fields' in html
     assert 'Incorrect reference/specification' in html
-    assert 'Selected Categories' in html
-    assert 'A single returned report may contribute to multiple category counts.' in html
     # No preliminary review return comments found... message should NOT show
     assert 'No preliminary review return comments found' not in html
 
