@@ -898,6 +898,128 @@ def _setup_qa_corrected_return_data(app):
         db.session.commit()
 
 
+def _setup_prelim_comment_category_data(app):
+    """Create one sample/assignment with preliminary ReviewHistory rows
+    covering all five comment categories, including 'not_accepted' actions
+    and comments with mixed case / extra whitespace."""
+    from app.models import AssignmentStatus, ReviewHistory
+
+    with app.app_context():
+        admin = _create_user(Role.ADMIN, username='admin_cat')
+        chemist = _create_user(Role.CHEMIST, Branch.PHARMACEUTICAL, username='chemist_cat')
+        reviewer = _create_user(Role.OFFICER, username='reviewer_cat')
+
+        sample = Sample(
+            lab_number='CAT-001',
+            sample_name='Comment Category Test',
+            sample_type=Branch.PHARMACEUTICAL,
+            date_received=date(2026, 4, 1),
+            uploaded_by=admin.id,
+            status=SampleStatus.REGISTERED,
+        )
+        db.session.add(sample)
+        db.session.flush()
+
+        assignment = SampleAssignment(
+            sample_id=sample.id,
+            chemist_id=chemist.id,
+            assigned_by=admin.id,
+            test_name='Assay',
+            assigned_date=datetime(2026, 4, 2, tzinfo=timezone.utc),
+            status=AssignmentStatus.RETURNED,
+        )
+        db.session.add(assignment)
+        db.session.flush()
+
+        # Officers commonly reject (not_accepted) reports for calculation,
+        # unit, and typographical errors, while returning for correction on
+        # more administrative issues (incomplete fields, references).
+        cases = [
+            ('not_accepted', '  MISSING/incorrect   Calculations found in section 3  '),
+            ('not_accepted', 'Incorrect  UNITS used for concentration'),
+            ('not_accepted', 'Typographical errors on page 2'),
+            ('returned', 'Incomplete fields in the form'),
+            ('returned', 'Incorrect reference/specification cited'),
+        ]
+        for i, (action, comment) in enumerate(cases):
+            db.session.add(ReviewHistory(
+                sample_id=sample.id,
+                assignment_id=assignment.id,
+                review_type='preliminary',
+                review_number=i + 1,
+                action=action,
+                reviewer_id=reviewer.id,
+                reviewed_at=datetime(2026, 4, 3, 9, tzinfo=timezone.utc),
+                comments=comment,
+            ))
+        db.session.commit()
+        return assignment.id
+
+
+def test_prelim_comment_category_breakdown_includes_not_accepted_actions():
+    """All five categories should be counted, including ones only present
+    on 'not_accepted' (Reject Report) reviews, not just 'returned' ones."""
+    from app import create_app
+    from app.main.routes import _prelim_comment_category_breakdown
+
+    app = create_app('testing')
+    with app.app_context():
+        db.create_all()
+        try:
+            assignment_id = _setup_prelim_comment_category_data(app)
+            result = _prelim_comment_category_breakdown([assignment_id])
+            counts = {r['category']: r['count'] for r in result}
+            assert counts['Missing/incorrect calculations'] == 1
+            assert counts['Incorrect units'] == 1
+            assert counts['Typographical errors'] == 1
+            # "Incomplete fields" also matches the 'missing' keyword in the
+            # calculations comment ("MISSING/incorrect Calculations..."),
+            # which is expected: a single comment can span multiple categories.
+            assert counts['Incomplete fields'] == 2
+            assert counts['Incorrect reference/specification'] == 1
+            # Percentages should sum to ~100% (allowing for rounding)
+            total_pct = sum(r['pct'] for r in result)
+            assert 99.0 <= total_pct <= 101.0
+        finally:
+            db.session.remove()
+            db.drop_all()
+
+
+def test_prelim_comment_category_breakdown_empty_when_no_assignments():
+    from app import create_app
+    from app.main.routes import _prelim_comment_category_breakdown
+
+    app = create_app('testing')
+    with app.app_context():
+        db.create_all()
+        try:
+            result = _prelim_comment_category_breakdown([])
+            assert len(result) == 5
+            assert all(r['count'] == 0 and r['pct'] == 0.0 for r in result)
+        finally:
+            db.session.remove()
+            db.drop_all()
+
+
+def test_qa_performance_page_shows_comment_category_counts(app, client):
+    """The QA Performance Summary page renders all five comment categories
+    with non-zero counts when matching not_accepted/returned records exist."""
+    assignment_id = _setup_prelim_comment_category_data(app)
+    _login(client, 'admin_cat')
+
+    resp = client.get('/reports/qa-performance?year=2026')
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'Preliminary Review Comment Categories' in html
+    assert 'Missing/incorrect calculations' in html
+    assert 'Incorrect units' in html
+    assert 'Typographical errors' in html
+    assert 'Incomplete fields' in html
+    assert 'Incorrect reference/specification' in html
+    # No preliminary review return comments found... message should NOT show
+    assert 'No preliminary review return comments found' not in html
+
+
 def test_qa_performance_page_uses_corrected_sample_event_counts(app, client):
     _setup_qa_corrected_return_data(app)
     _login(client, 'admin_qa')
