@@ -213,17 +213,36 @@
 
 <!-- ── Preliminary Review Comment Category Breakdown ───────────────── -->
 {% set cat_total = comment_category_breakdown | sum(attribute='count') %}
+{% set cat_max = (comment_category_breakdown | map(attribute='count') | list | max) if comment_category_breakdown else 0 %}
+<style>
+    .comment-cat-row:focus-visible,
+    .comment-cat-row.is-selected {
+        outline: 2px solid var(--bs-primary);
+        outline-offset: -2px;
+        background-color: var(--bs-primary-bg-subtle, #e7f1ff);
+    }
+    .comment-cat-row .cat-name {
+        white-space: normal;
+        word-break: break-word;
+    }
+    @media (max-width: 576px) {
+        #comment-category-table th, #comment-category-table td { font-size: 0.85rem; }
+    }
+</style>
 <div class="card shadow-sm mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-1">
         <span class="fw-semibold">
             <i class="bi bi-bar-chart-fill me-1"></i>Preliminary Review Comment Categories
             <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}</span>
         </span>
-        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click a row to see the contributing records</span>
+        {% if cat_total > 0 %}
+        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click or press Enter on a row to see the contributing records</span>
+        {% endif %}
     </div>
     {% if cat_total > 0 %}
     <div class="table-responsive">
         <table class="table table-hover table-bordered align-middle mb-0" id="comment-category-table">
+            <caption class="visually-hidden">Preliminary review comment categories with selection counts and share of total</caption>
             <thead class="table-secondary">
                 <tr>
                     <th class="ps-3" style="min-width:240px;">Comment Category</th>
@@ -233,11 +252,19 @@
             </thead>
             <tbody>
                 {% for cat in comment_category_breakdown %}
-                <tr class="comment-cat-row" style="cursor:pointer;"
+                <tr class="comment-cat-row{% if cat.count > 0 and cat.count == cat_max %} table-warning{% endif %}"
+                    style="cursor:pointer;"
+                    tabindex="0"
+                    role="button"
+                    aria-label="{{ cat.category }}: {{ cat.count }} selection{{ 's' if cat.count != 1 else '' }}, {{ cat.pct }} percent of total. Press Enter to view records."
+                    title="{{ cat.category }}"
                     data-category="{{ cat.category | e }}"
                     data-reviews='{{ cat.reviews | tojson }}'>
                     <td class="ps-3 fw-semibold">
-                        {{ cat.category }}
+                        <span class="cat-name">{{ cat.category }}</span>
+                        {% if cat.count > 0 and cat.count == cat_max %}
+                        <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;" title="Most frequently selected category">Top</span>
+                        {% endif %}
                         <i class="bi bi-chevron-right ms-1 text-muted" style="font-size:0.75rem;"></i>
                     </td>
                     <td class="text-center">
@@ -275,6 +302,7 @@
     <div class="card-body text-center text-muted py-4">
         <i class="bi bi-chat-left-text fs-3 d-block mb-2"></i>
         No preliminary review return comments found for this period.
+        <div class="small mt-1">Try selecting a different financial year, quarter, or month.</div>
     </div>
     {% endif %}
 </div>
@@ -894,23 +922,38 @@
     });
 
     // ── Comment Category table click handler ────────────────────
+    function openCommentCategoryModal(row) {
+        const category = row.dataset.category;
+        const reviews  = JSON.parse(row.dataset.reviews);
+
+        document.querySelectorAll('.comment-cat-row.is-selected').forEach(function (r) {
+            r.classList.remove('is-selected');
+            r.removeAttribute('aria-pressed');
+        });
+        row.classList.add('is-selected');
+        row.setAttribute('aria-pressed', 'true');
+
+        document.getElementById('categoryModalName').textContent = category;
+        document.getElementById('commentCategoryCount').textContent =
+            reviews.length + ' record' + (reviews.length !== 1 ? 's' : '');
+
+        const tbody = document.getElementById('commentCategoryBody');
+        tbody.innerHTML = '';
+        tbody.appendChild(buildReviewRows(
+            reviews,
+            ['lab_number', 'analyst', 'test_name', 'action', 'reviewed_at']
+        ));
+
+        new bootstrap.Modal(document.getElementById('commentCategoryModal')).show();
+    }
+
     document.querySelectorAll('.comment-cat-row').forEach(function (row) {
-        row.addEventListener('click', function () {
-            const category = this.dataset.category;
-            const reviews  = JSON.parse(this.dataset.reviews);
-
-            document.getElementById('categoryModalName').textContent = category;
-            document.getElementById('commentCategoryCount').textContent =
-                reviews.length + ' record' + (reviews.length !== 1 ? 's' : '');
-
-            const tbody = document.getElementById('commentCategoryBody');
-            tbody.innerHTML = '';
-            tbody.appendChild(buildReviewRows(
-                reviews,
-                ['lab_number', 'analyst', 'test_name', 'action', 'reviewed_at']
-            ));
-
-            new bootstrap.Modal(document.getElementById('commentCategoryModal')).show();
+        row.addEventListener('click', function () { openCommentCategoryModal(this); });
+        row.addEventListener('keydown', function (evt) {
+            if (evt.key === 'Enter' || evt.key === ' ' || evt.key === 'Spacebar') {
+                evt.preventDefault();
+                openCommentCategoryModal(this);
+            }
         });
     });
 }());

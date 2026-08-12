@@ -80,6 +80,32 @@ PRELIM_COMMENT_CATEGORIES = [
     (['reference', 'standard', 'spec', 'limit', 'criteria'],    'Incorrect reference/specification'),
 ]
 
+import re as _re
+
+# Matches a run of whitespace (regular space, tabs, newlines, and the
+# non-breaking space \xa0 that rich-text/paste input sometimes introduces).
+_WHITESPACE_RE = _re.compile(r'[\s\xa0]+')
+
+
+def _normalize_comment_text(text):
+    """Lower-case and collapse whitespace so keyword matching tolerates
+    extra spaces, tabs, non-breaking spaces, or mixed capitalization
+    without altering the meaning of the text being matched."""
+    return _WHITESPACE_RE.sub(' ', text.lower()).strip()
+
+
+def _any_keyword_in_text(keywords, combined):
+    """Return True if any keyword is present in `combined` (already
+    normalized via `_normalize_comment_text`).
+
+    Keywords are intentionally partial word stems (e.g. 'calculat' so it
+    matches "calculation"/"calculations"/"calculate"/"miscalculated"), so a
+    plain substring check is used rather than strict whole-word matching,
+    which would otherwise miss those legitimate variations.
+    """
+    return any(kw in combined for kw in keywords)
+
+
 
 def _get_default_resubmission_types():
     """Return the default resubmission type filter list from settings.
@@ -2993,7 +3019,7 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
     raw_texts = []
     for comments, checklist_data in rows:
         if comments:
-            raw_texts.append(comments.lower())
+            raw_texts.append(_normalize_comment_text(comments))
         if checklist_data:
             try:
                 obj = _json.loads(checklist_data)
@@ -3001,9 +3027,9 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
                 if isinstance(obj, dict):
                     for label, val in obj.items():
                         if val is False or val == 'no' or val == 'fail' or val == 'failed':
-                            raw_texts.append(label.lower())
+                            raw_texts.append(_normalize_comment_text(label))
                         elif isinstance(val, str) and val.strip():
-                            raw_texts.append(val.lower())
+                            raw_texts.append(_normalize_comment_text(val))
             except (ValueError, TypeError):
                 pass
 
@@ -3027,7 +3053,7 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
 
     found = []
     for keywords, label in keyword_categories:
-        if any(kw in combined for kw in keywords):
+        if _any_keyword_in_text(keywords, combined):
             found.append(label)
 
     return '; '.join(found) if found else 'See review comments'
@@ -3037,9 +3063,16 @@ def _prelim_comment_category_breakdown(assignment_ids):
     """Return per-category counts for preliminary review return comments.
 
     Queries all ReviewHistory rows with review_type='preliminary' and
-    action='returned' for the given assignment IDs, then classifies each
-    row's comments against PRELIM_COMMENT_CATEGORIES using the same keyword
-    matching as _qa_return_reason_summary.
+    action in ('returned', 'not_accepted') for the given assignment IDs,
+    then classifies each row's comments against PRELIM_COMMENT_CATEGORIES
+    using the same normalized keyword matching as _qa_return_reason_summary.
+
+    Both 'returned' (Return for Correction) and 'not_accepted' (Not
+    Accepted - Reject Report) are included: both actions record reviewer
+    comments explaining what is wrong with a report, and excluding
+    'not_accepted' rows was causing categories that reviewers predominantly
+    flag via that decision (e.g. calculation, unit, and typographical
+    errors) to show zero selections even though matching records existed.
 
     Returns a list of dicts (one per category, in PRELIM_COMMENT_CATEGORIES
     order):
@@ -3060,7 +3093,7 @@ def _prelim_comment_category_breakdown(assignment_ids):
         .filter(
             ReviewHistory.assignment_id.in_(assignment_ids),
             ReviewHistory.review_type == 'preliminary',
-            ReviewHistory.action == 'returned',
+            ReviewHistory.action.in_(['returned', 'not_accepted']),
         )
         .with_entities(
             ReviewHistory.id,
@@ -3068,6 +3101,7 @@ def _prelim_comment_category_breakdown(assignment_ids):
             ReviewHistory.comments,
             ReviewHistory.checklist_data,
             ReviewHistory.reviewed_at,
+            ReviewHistory.action,
         )
         .all()
     )
@@ -3089,16 +3123,16 @@ def _prelim_comment_category_breakdown(assignment_ids):
     for row in rows:
         raw_texts = []
         if row.comments:
-            raw_texts.append(row.comments.lower())
+            raw_texts.append(_normalize_comment_text(row.comments))
         if row.checklist_data:
             try:
                 obj = _json.loads(row.checklist_data)
                 if isinstance(obj, dict):
                     for label, val in obj.items():
                         if val is False or val in ('no', 'fail', 'failed'):
-                            raw_texts.append(label.lower())
+                            raw_texts.append(_normalize_comment_text(label))
                         elif isinstance(val, str) and val.strip():
-                            raw_texts.append(val.lower())
+                            raw_texts.append(_normalize_comment_text(val))
             except (ValueError, TypeError):
                 pass
 
@@ -3119,7 +3153,7 @@ def _prelim_comment_category_breakdown(assignment_ids):
             'lab_number': lab_number,
             'analyst': analyst_name,
             'test_name': test_name,
-            'action': 'returned',  # filter guarantees only returned rows
+            'action': row.action,
             'reviewed_at': (
                 row.reviewed_at.strftime('%Y-%m-%d %H:%M')
                 if row.reviewed_at else ''
@@ -3127,7 +3161,7 @@ def _prelim_comment_category_breakdown(assignment_ids):
         }
 
         for keywords, lbl in PRELIM_COMMENT_CATEGORIES:
-            if any(kw in combined for kw in keywords):
+            if _any_keyword_in_text(keywords, combined):
                 cat_reviews[lbl].append(detail)
 
     total = sum(len(v) for v in cat_reviews.values())
