@@ -216,14 +216,25 @@
 {% set cat_max = (comment_category_breakdown | map(attribute='count') | list | max) if comment_category_breakdown else 0 %}
 <style>
     .comment-cat-row:focus-visible,
-    .comment-cat-row.is-selected {
+    .comment-cat-row.is-selected,
+    .analyst-row:focus-visible,
+    .analyst-row.is-selected {
         outline: 2px solid var(--bs-primary);
         outline-offset: -2px;
         background-color: var(--bs-primary-bg-subtle, #e7f1ff);
     }
+    .comment-cat-row:hover,
+    .analyst-row:hover {
+        box-shadow: inset 4px 0 0 var(--bs-primary);
+    }
     .comment-cat-row .cat-name {
         white-space: normal;
         word-break: break-word;
+    }
+    .comment-cat-progress {
+        min-width: 130px;
+        height: 0.7rem;
+        background: var(--bs-secondary-bg, #e9ecef);
     }
     @media (max-width: 576px) {
         #comment-category-table th, #comment-category-table td { font-size: 0.85rem; }
@@ -235,13 +246,20 @@
             <i class="bi bi-bar-chart-fill me-1"></i>Preliminary Review Comment Categories
             <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}</span>
         </span>
-        {% if cat_total > 0 %}
-        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click or press Enter on a row to see the contributing records</span>
-        {% endif %}
+        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"
+              title="Percentages use total selected category instances as the denominator. One returned report can contribute to multiple categories.">
+            <i class="bi bi-info-circle me-1"></i>{{ "{:,}".format(cat_total) }} total selection{{ 's' if cat_total != 1 else '' }}
+        </span>
     </div>
     {% if cat_total > 0 %}
+    <div class="card-body border-bottom py-2">
+        <div class="small text-muted" id="commentCategoryHelp">
+            Share of total = category selections ÷ {{ "{:,}".format(cat_total) }} selected category instance{{ 's' if cat_total != 1 else '' }}.
+            A single returned report may contribute to multiple category counts.
+        </div>
+    </div>
     <div class="table-responsive">
-        <table class="table table-hover table-bordered align-middle mb-0" id="comment-category-table">
+        <table class="table table-hover table-bordered align-middle mb-0" id="comment-category-table" aria-describedby="commentCategoryHelp">
             <caption class="visually-hidden">Preliminary review comment categories with selection counts and share of total</caption>
             <thead class="table-secondary">
                 <tr>
@@ -256,8 +274,8 @@
                     style="cursor:pointer;"
                     tabindex="0"
                     role="button"
-                    aria-label="{{ cat.category }}: {{ cat.count }} selection{{ 's' if cat.count != 1 else '' }}, {{ cat.pct }} percent of total. Press Enter to view records."
-                    title="{{ cat.category }}"
+                    aria-label="{{ cat.category }}: {{ cat.count }} selection{{ 's' if cat.count != 1 else '' }}, {{ cat.pct }} percent of {{ cat_total }} total selected category instances. Press Enter to view records."
+                    title="Open contributing records for {{ cat.category }}"
                     data-category="{{ cat.category | e }}"
                     data-reviews='{{ cat.reviews | tojson }}'>
                     <td class="ps-3 fw-semibold">
@@ -269,7 +287,7 @@
                     </td>
                     <td class="text-center">
                         {% if cat.count > 0 %}
-                        <span class="badge rounded-pill bg-primary fs-6 px-3">{{ cat.count }}</span>
+                        <span class="badge rounded-pill bg-primary fs-6 px-3">{{ "{:,}".format(cat.count) }}</span>
                         {% else %}
                         <span class="text-muted">0</span>
                         {% endif %}
@@ -277,8 +295,10 @@
                     <td>
                         {% if cat.count > 0 %}
                         <div class="d-flex align-items-center gap-2">
-                            <div class="progress flex-grow-1" style="height:10px; max-width:160px;">
-                                <div class="progress-bar bg-primary" style="width:{{ [cat.pct, 100] | min }}%;"></div>
+                            <div class="progress flex-grow-1 comment-cat-progress" title="{{ cat.pct }}% of total category selections">
+                                <div class="progress-bar bg-primary" role="progressbar"
+                                     style="width:{{ [cat.pct, 100] | min }}%;"
+                                     aria-valuenow="{{ cat.pct }}" aria-valuemin="0" aria-valuemax="100"></div>
                             </div>
                             <span class="text-muted" style="font-size:0.78rem; white-space:nowrap;">{{ cat.pct }}%</span>
                         </div>
@@ -292,7 +312,7 @@
             <tfoot class="table-secondary fw-bold">
                 <tr>
                     <td class="ps-3">TOTAL</td>
-                    <td class="text-center">{{ cat_total }}</td>
+                    <td class="text-center">{{ "{:,}".format(cat_total) }}</td>
                     <td></td>
                 </tr>
             </tfoot>
@@ -355,6 +375,10 @@
                 {% set total_tests = analyst.food + analyst.tox + analyst.pharm %}
                 {% set first_pct = ((analyst.accepted_first / (analyst.accepted_first + analyst.returned) * 100) | round(0) | int) if (analyst.accepted_first + analyst.returned) > 0 else 0 %}
                 <tr class="analyst-row" style="cursor:pointer;"
+                    tabindex="0"
+                    role="button"
+                    aria-label="Open preliminary review details for {{ analyst.name }}"
+                    title="Open preliminary review details for {{ analyst.name }}"
                     data-analyst="{{ analyst.name | e }}"
                     data-reviews='{{ analyst.reviews | tojson }}'>
                     <!-- Analyst Name -->
@@ -418,7 +442,7 @@
                     </td>
 
                     <!-- Return Reason Summary -->
-                    <td>
+                    <td class="text-break">
                         {% if analyst.returned == 0 %}
                         <span class="text-success small"><i class="bi bi-check2-circle me-1"></i>No returns</span>
                         {% elif analyst.return_reasons %}
@@ -700,6 +724,7 @@
                             <th>Analyst</th>
                             <th>Test</th>
                             <th class="text-center">Action</th>
+                            <th>Selected Categories</th>
                             <th>Date Reviewed</th>
                         </tr>
                     </thead>
@@ -901,23 +926,36 @@
     }
 
     // ── Analyst Performance Table click handler ─────────────────
+    function openAnalystReviewsModal(row) {
+        const name    = row.dataset.analyst;
+        const reviews = JSON.parse(row.dataset.reviews);
+
+        document.querySelectorAll('.analyst-row.is-selected').forEach(function (r) {
+            r.classList.remove('is-selected');
+        });
+        row.classList.add('is-selected');
+
+        document.getElementById('analystModalName').textContent = name;
+        document.getElementById('analystReviewsCount').textContent =
+            reviews.length + ' review' + (reviews.length !== 1 ? 's' : '');
+
+        const tbody = document.getElementById('analystReviewsBody');
+        tbody.innerHTML = '';
+        tbody.appendChild(buildReviewRows(
+            reviews,
+            ['lab_number', 'reviewer', 'test_name', 'action', 'categories', 'reviewed_at']
+        ));
+
+        new bootstrap.Modal(document.getElementById('analystReviewsModal')).show();
+    }
+
     document.querySelectorAll('.analyst-row').forEach(function (row) {
-        row.addEventListener('click', function () {
-            const name    = this.dataset.analyst;
-            const reviews = JSON.parse(this.dataset.reviews);
-
-            document.getElementById('analystModalName').textContent = name;
-            document.getElementById('analystReviewsCount').textContent =
-                reviews.length + ' review' + (reviews.length !== 1 ? 's' : '');
-
-            const tbody = document.getElementById('analystReviewsBody');
-            tbody.innerHTML = '';
-            tbody.appendChild(buildReviewRows(
-                reviews,
-                ['lab_number', 'reviewer', 'test_name', 'action', 'reviewed_at']
-            ));
-
-            new bootstrap.Modal(document.getElementById('analystReviewsModal')).show();
+        row.addEventListener('click', function () { openAnalystReviewsModal(this); });
+        row.addEventListener('keydown', function (evt) {
+            if (evt.key === 'Enter' || evt.key === ' ' || evt.key === 'Spacebar') {
+                evt.preventDefault();
+                openAnalystReviewsModal(this);
+            }
         });
     });
 
