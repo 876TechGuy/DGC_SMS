@@ -6,7 +6,6 @@ from flask_login import login_required, current_user
 from datetime import datetime, timezone, date
 import csv
 import enum
-import html as _html
 import io
 import json
 
@@ -92,20 +91,7 @@ def _normalize_comment_text(text):
     """Lower-case and collapse whitespace so keyword matching tolerates
     extra spaces, tabs, non-breaking spaces, or mixed capitalization
     without altering the meaning of the text being matched."""
-    return _WHITESPACE_RE.sub(' ', _html.unescape(str(text)).lower()).strip()
-
-
-def _normalize_comment_category_key(value):
-    """Normalize category labels for stable comparison while preserving display labels."""
-    normalized = _normalize_comment_text(value)
-    normalized = _re.sub(r'\s*/\s*', '/', normalized)
-    return normalized.strip(' \t\r\n:;,.')
-
-
-_PRELIM_COMMENT_LABEL_BY_KEY = {
-    _normalize_comment_category_key(label): label
-    for _, label in PRELIM_COMMENT_CATEGORIES
-}
+    return _WHITESPACE_RE.sub(' ', text.lower()).strip()
 
 
 def _any_keyword_in_text(keywords, combined):
@@ -118,81 +104,6 @@ def _any_keyword_in_text(keywords, combined):
     which would otherwise miss those legitimate variations.
     """
     return any(kw in combined for kw in keywords)
-
-
-def _prelim_comment_category_label(value):
-    """Return the canonical display label for a stored category value, if any."""
-    if value is None:
-        return None
-    return _PRELIM_COMMENT_LABEL_BY_KEY.get(_normalize_comment_category_key(value))
-
-
-def _iter_prelim_comment_values(value):
-    """Yield text values from comments/checklist JSON that may contain categories."""
-    if value is None:
-        return
-    if isinstance(value, (list, tuple, set)):
-        for item in value:
-            yield from _iter_prelim_comment_values(item)
-        return
-    if isinstance(value, dict):
-        for key, val in value.items():
-            key_label = _prelim_comment_category_label(key)
-            if key_label:
-                val_norm = _normalize_comment_category_key(val) if val is not None else ''
-                if val is not False and val_norm not in ('false', 'no', '0', 'unchecked', ''):
-                    yield key
-                continue
-            if val is False or (
-                isinstance(val, str)
-                and _normalize_comment_category_key(val) in ('no', 'fail', 'failed')
-            ):
-                yield key
-            else:
-                yield from _iter_prelim_comment_values(val)
-        return
-    yield str(value)
-
-
-def _prelim_comment_source_values(comments=None, checklist_data=None):
-    """Collect all free-text and structured values that may hold review categories."""
-    values = []
-    if comments:
-        values.append(str(comments))
-    if checklist_data:
-        try:
-            parsed = json.loads(checklist_data)
-        except (ValueError, TypeError):
-            parsed = checklist_data
-        values.extend(_iter_prelim_comment_values(parsed))
-    return values
-
-
-def _extract_prelim_comment_categories(comments=None, checklist_data=None):
-    """Return canonical preliminary comment categories selected in one review record.
-
-    A single review can contribute to multiple category counts. Exact stored labels
-    are matched after whitespace/case normalization, then remaining text is scanned
-    with the shared keyword rules as a fallback for legacy free-text comments.
-    """
-    values = _prelim_comment_source_values(comments, checklist_data)
-    found = set()
-    keyword_parts = []
-
-    for value in values:
-        category_text = _normalize_comment_category_key(value)
-        for key, label in _PRELIM_COMMENT_LABEL_BY_KEY.items():
-            if category_text == key or key in category_text:
-                found.add(label)
-                category_text = category_text.replace(key, ' ')
-        keyword_parts.append(category_text)
-
-    combined = ' '.join(keyword_parts)
-    for keywords, label in PRELIM_COMMENT_CATEGORIES:
-        if label not in found and _any_keyword_in_text(keywords, combined):
-            found.add(label)
-
-    return [label for _, label in PRELIM_COMMENT_CATEGORIES if label in found]
 
 
 
@@ -3097,21 +3008,55 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
         ReviewHistory.query
         .filter(
             ReviewHistory.assignment_id.in_(assignment_ids),
-            ReviewHistory.review_type == 'preliminary',
-            ReviewHistory.action.in_(['returned', 'not_accepted']),
+            ReviewHistory.action == 'returned',
         )
         .with_entities(ReviewHistory.comments, ReviewHistory.checklist_data)
         .all()
     )
 
-    found = set()
+    # Collect all comment text (both free-text comments and checklist JSON)
+    import json as _json
+    raw_texts = []
     for comments, checklist_data in rows:
-        found.update(_extract_prelim_comment_categories(comments, checklist_data))
+        if comments:
+            raw_texts.append(_normalize_comment_text(comments))
+        if checklist_data:
+            try:
+                obj = _json.loads(checklist_data)
+                # Checklist is typically {label: bool/str}; collect failed item labels
+                if isinstance(obj, dict):
+                    for label, val in obj.items():
+                        if val is False or val == 'no' or val == 'fail' or val == 'failed':
+                            raw_texts.append(_normalize_comment_text(label))
+                        elif isinstance(val, str) and val.strip():
+                            raw_texts.append(_normalize_comment_text(val))
+            except (ValueError, TypeError):
+                pass
 
-    ordered = [label for _, label in PRELIM_COMMENT_CATEGORIES if label in found]
-    if ordered:
-        return '; '.join(ordered)
-    return 'See review comments' if rows else ''
+    if not raw_texts:
+        return ''
+
+    combined = ' '.join(raw_texts)
+
+    # Keyword → category mapping (order matters: first match wins per keyword)
+    keyword_categories = [
+        (['calculat', 'arithmetic', 'math', 'formula'], 'Missing/incorrect calculations'),
+        (['unit', 'measurement', 'mg', 'g/l', 'ppm', 'ppb', '%'], 'Incorrect units'),
+        (['method', 'procedure', 'protocol', 'technique', 'analyt'], 'Incomplete methodology'),
+        (['typo', 'spelling', 'grammatical', 'typograph', 'error in text'], 'Typographical errors'),
+        (['attach', 'document', 'missing file', 'appendix', 'enclos'], 'Missing attachments'),
+        (['transcri', 'data entry', 'recorded', 'copy', 'transfer'], 'Data transcription errors'),
+        (['signature', 'sign off', 'initiall', 'unsigned'], 'Missing signature/sign-off'),
+        (['incomplete', 'missing', 'omit', 'not filled', 'blank'], 'Incomplete fields'),
+        (['reference', 'standard', 'spec', 'limit', 'criteria'], 'Incorrect reference/specification'),
+    ]
+
+    found = []
+    for keywords, label in keyword_categories:
+        if _any_keyword_in_text(keywords, combined):
+            found.append(label)
+
+    return '; '.join(found) if found else 'See review comments'
 
 
 def _prelim_comment_category_breakdown(assignment_ids):
@@ -3170,10 +3115,29 @@ def _prelim_comment_category_breakdown(assignment_ids):
         ).all()
         asgn_map = {a.id: a for a in asgns}
 
+    import json as _json
+
     # Accumulate drill-down records per category label
     cat_reviews = {lbl: [] for _, lbl in PRELIM_COMMENT_CATEGORIES}
 
     for row in rows:
+        raw_texts = []
+        if row.comments:
+            raw_texts.append(_normalize_comment_text(row.comments))
+        if row.checklist_data:
+            try:
+                obj = _json.loads(row.checklist_data)
+                if isinstance(obj, dict):
+                    for label, val in obj.items():
+                        if val is False or val in ('no', 'fail', 'failed'):
+                            raw_texts.append(_normalize_comment_text(label))
+                        elif isinstance(val, str) and val.strip():
+                            raw_texts.append(_normalize_comment_text(val))
+            except (ValueError, TypeError):
+                pass
+
+        combined = ' '.join(raw_texts)
+
         asgn = asgn_map.get(row.assignment_id)
         if asgn:
             sample = asgn.sample
@@ -3196,8 +3160,9 @@ def _prelim_comment_category_breakdown(assignment_ids):
             ),
         }
 
-        for lbl in _extract_prelim_comment_categories(row.comments, row.checklist_data):
-            cat_reviews[lbl].append(detail)
+        for keywords, lbl in PRELIM_COMMENT_CATEGORIES:
+            if _any_keyword_in_text(keywords, combined):
+                cat_reviews[lbl].append(detail)
 
     total = sum(len(v) for v in cat_reviews.values())
 
@@ -3260,8 +3225,6 @@ def _qa_analyst_prelim_review_details(analyst_data):
             ReviewHistory.reviewer_id,
             ReviewHistory.action,
             ReviewHistory.reviewed_at,
-            ReviewHistory.comments,
-            ReviewHistory.checklist_data,
         )
         .all()
     )
@@ -3296,11 +3259,6 @@ def _qa_analyst_prelim_review_details(analyst_data):
             'reviewer': users.get(row.reviewer_id, 'Unknown'),
             'test_name': test_name,
             'action': row.action,
-            'categories': (
-                '; '.join(_extract_prelim_comment_categories(
-                    row.comments, row.checklist_data
-                )) or '—'
-            ),
             'reviewed_at': (
                 row.reviewed_at.strftime('%Y-%m-%d %H:%M')
                 if row.reviewed_at else ''
