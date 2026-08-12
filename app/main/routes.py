@@ -69,6 +69,17 @@ ANALYST_REPORT_RESUB_TYPES_KEY = 'analyst_report_default_resubmission_types'
 # Valid values: 'sample' (count by unique sample) or 'test' (count by test assignment).
 QA_PERFORMANCE_COUNT_BY_KEY = 'qa_performance_count_by'
 
+# Standard preliminary review comment categories used for the dashboard breakdown.
+# Each tuple is (list_of_keywords, display_label).  The same keyword lists are
+# used by _qa_return_reason_summary; keeping them in one place avoids drift.
+PRELIM_COMMENT_CATEGORIES = [
+    (['calculat', 'arithmetic', 'math', 'formula'],             'Missing/incorrect calculations'),
+    (['unit', 'measurement', 'mg', 'g/l', 'ppm', 'ppb', '%'],  'Incorrect units'),
+    (['typo', 'spelling', 'grammatical', 'typograph', 'error in text'], 'Typographical errors'),
+    (['incomplete', 'missing', 'omit', 'not filled', 'blank'],  'Incomplete fields'),
+    (['reference', 'standard', 'spec', 'limit', 'criteria'],    'Incorrect reference/specification'),
+]
+
 
 def _get_default_resubmission_types():
     """Return the default resubmission type filter list from settings.
@@ -3022,6 +3033,212 @@ def _qa_return_reason_summary(analyst_id, assignment_ids):
     return '; '.join(found) if found else 'See review comments'
 
 
+def _prelim_comment_category_breakdown(assignment_ids):
+    """Return per-category counts for preliminary review return comments.
+
+    Queries all ReviewHistory rows with review_type='preliminary' and
+    action='returned' for the given assignment IDs, then classifies each
+    row's comments against PRELIM_COMMENT_CATEGORIES using the same keyword
+    matching as _qa_return_reason_summary.
+
+    Returns a list of dicts (one per category, in PRELIM_COMMENT_CATEGORIES
+    order):
+        category  – display label
+        count     – number of return events matching this category
+        pct       – percentage of total matched selections (0.0 when total is 0)
+        reviews   – list of per-record dicts for drill-down:
+                    {lab_number, analyst, test_name, action, reviewed_at}
+    """
+    if not assignment_ids:
+        return [
+            {'category': lbl, 'count': 0, 'pct': 0.0, 'reviews': []}
+            for _, lbl in PRELIM_COMMENT_CATEGORIES
+        ]
+
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(assignment_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action == 'returned',
+        )
+        .with_entities(
+            ReviewHistory.id,
+            ReviewHistory.assignment_id,
+            ReviewHistory.comments,
+            ReviewHistory.checklist_data,
+            ReviewHistory.reviewed_at,
+        )
+        .all()
+    )
+
+    # Bulk-load assignments for drill-down labels
+    asgn_ids_needed = {r.assignment_id for r in rows if r.assignment_id}
+    asgn_map = {}
+    if asgn_ids_needed:
+        asgns = SampleAssignment.query.filter(
+            SampleAssignment.id.in_(asgn_ids_needed)
+        ).all()
+        asgn_map = {a.id: a for a in asgns}
+
+    import json as _json
+
+    # Accumulate drill-down records per category label
+    cat_reviews = {lbl: [] for _, lbl in PRELIM_COMMENT_CATEGORIES}
+
+    for row in rows:
+        raw_texts = []
+        if row.comments:
+            raw_texts.append(row.comments.lower())
+        if row.checklist_data:
+            try:
+                obj = _json.loads(row.checklist_data)
+                if isinstance(obj, dict):
+                    for label, val in obj.items():
+                        if val is False or val in ('no', 'fail', 'failed'):
+                            raw_texts.append(label.lower())
+                        elif isinstance(val, str) and val.strip():
+                            raw_texts.append(val.lower())
+            except (ValueError, TypeError):
+                pass
+
+        combined = ' '.join(raw_texts)
+
+        asgn = asgn_map.get(row.assignment_id)
+        if asgn:
+            sample = asgn.sample
+            analyst_name = asgn.chemist.full_name if asgn.chemist else 'Unknown'
+            lab_number = sample.lab_number if sample else '—'
+            test_name = asgn.test_name or '—'
+        else:
+            analyst_name = '—'
+            lab_number = '—'
+            test_name = '—'
+
+        detail = {
+            'lab_number': lab_number,
+            'analyst': analyst_name,
+            'test_name': test_name,
+            'action': 'returned',  # filter guarantees only returned rows
+            'reviewed_at': (
+                row.reviewed_at.strftime('%Y-%m-%d %H:%M')
+                if row.reviewed_at else ''
+            ),
+        }
+
+        for keywords, lbl in PRELIM_COMMENT_CATEGORIES:
+            if any(kw in combined for kw in keywords):
+                cat_reviews[lbl].append(detail)
+
+    total = sum(len(v) for v in cat_reviews.values())
+
+    result = []
+    for _, lbl in PRELIM_COMMENT_CATEGORIES:
+        count = len(cat_reviews[lbl])
+        pct = round(count / total * 100, 1) if total > 0 else 0.0
+        result.append({'category': lbl, 'count': count, 'pct': pct,
+                        'reviews': cat_reviews[lbl]})
+    return result
+
+
+def _qa_analyst_prelim_review_details(analyst_data):
+    """Populate a 'reviews' list on each entry in analyst_data.
+
+    For each analyst (keyed by chemist_id) fetches every preliminary review
+    event recorded against their assignments so the dashboard can open a
+    drill-down modal when a row is clicked.
+
+    Each reviews entry is a plain dict:
+        {lab_number, reviewer, test_name, action, reviewed_at}
+
+    The analyst_data dict is mutated in-place (adding key 'reviews').
+    """
+    all_asgn_ids = [
+        aid
+        for entry in analyst_data.values()
+        for aid in entry.get('assignment_ids', [])
+    ]
+
+    # Initialise empty lists so every entry has the key regardless
+    for entry in analyst_data.values():
+        entry['reviews'] = []
+
+    if not all_asgn_ids:
+        return
+
+    # Reverse map: assignment_id → chemist_id
+    asgn_to_chemist = {
+        aid: cid
+        for cid, entry in analyst_data.items()
+        for aid in entry.get('assignment_ids', [])
+    }
+
+    # Bulk-load assignments for lab number / test name
+    asgns = SampleAssignment.query.filter(
+        SampleAssignment.id.in_(all_asgn_ids)
+    ).all()
+    asgn_map = {a.id: a for a in asgns}
+
+    rows = (
+        ReviewHistory.query
+        .filter(
+            ReviewHistory.assignment_id.in_(all_asgn_ids),
+            ReviewHistory.review_type == 'preliminary',
+            ReviewHistory.action.in_(['approved', 'returned', 'not_accepted']),
+        )
+        .with_entities(
+            ReviewHistory.assignment_id,
+            ReviewHistory.reviewer_id,
+            ReviewHistory.action,
+            ReviewHistory.reviewed_at,
+        )
+        .all()
+    )
+
+    # Bulk-load reviewer names
+    reviewer_ids = {r.reviewer_id for r in rows}
+    from app.models import User as _User
+    users = {
+        u.id: u.full_name
+        for u in _User.query.filter(_User.id.in_(reviewer_ids)).all()
+    }
+
+    for row in rows:
+        cid = asgn_to_chemist.get(row.assignment_id)
+        if cid is None:
+            continue
+        entry = analyst_data.get(cid)
+        if entry is None:
+            continue
+
+        asgn = asgn_map.get(row.assignment_id)
+        if asgn:
+            sample = asgn.sample
+            lab_number = sample.lab_number if sample else '—'
+            test_name = asgn.test_name or '—'
+        else:
+            lab_number = '—'
+            test_name = '—'
+
+        entry['reviews'].append({
+            'lab_number': lab_number,
+            'reviewer': users.get(row.reviewer_id, 'Unknown'),
+            'test_name': test_name,
+            'action': row.action,
+            'reviewed_at': (
+                row.reviewed_at.strftime('%Y-%m-%d %H:%M')
+                if row.reviewed_at else ''
+            ),
+            '_sort_dt': row.reviewed_at or datetime.min,
+        })
+
+    # Sort newest-first and drop the internal sort key
+    for entry in analyst_data.values():
+        entry['reviews'].sort(key=lambda r: r['_sort_dt'], reverse=True)
+        for r in entry['reviews']:
+            del r['_sort_dt']
+
+
 def _qa_preliminary_analyst_stats(assignments):
     """Return per-analyst preliminary review stats for the QA Performance report.
 
@@ -3239,6 +3456,9 @@ def qa_performance_summary():
             entry['id'], entry['assignment_ids']
         )
 
+    # Populate preliminary review drill-down records for each analyst
+    _qa_analyst_prelim_review_details(analyst_data)
+
     # Sort by analyst name
     analyst_list = sorted(analyst_data.values(), key=lambda x: x['name'].lower())
 
@@ -3266,6 +3486,9 @@ def qa_performance_summary():
     if search:
         prelim_analyst_list = [a for a in prelim_analyst_list if search.lower() in a['name'].lower()]
 
+    # Preliminary review comment category breakdown
+    comment_category_breakdown = _prelim_comment_category_breakdown(all_ids)
+
     return render_template(
         'qa_performance.html',
         analyst_list=analyst_list,
@@ -3280,6 +3503,7 @@ def qa_performance_summary():
         corrected_report_preview_rows=corrected_report['sample_rows'][:10],
         reviewer_stats=reviewer_stats,
         prelim_analyst_list=prelim_analyst_list,
+        comment_category_breakdown=comment_category_breakdown,
     )
 
 

@@ -211,7 +211,73 @@
 </div>
 {% endif %}{# end hidden Corrected Sample-Level Return Count #}
 
-<!-- ── Main Performance Table ───────────────────────────────── -->
+<!-- ── Preliminary Review Comment Category Breakdown ───────────────── -->
+{% set cat_total = comment_category_breakdown | sum(attribute='count') %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+            <i class="bi bi-bar-chart-fill me-1"></i>Preliminary Review Comment Categories
+            <span class="text-muted fw-normal ms-1 small">— {{ year }}/{{ year + 1 }}{% if month %} — {{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month] }}{% elif quarter %} Q{{ quarter }}{% endif %}</span>
+        </span>
+        <span class="ms-2 text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click a row to see the contributing records</span>
+    </div>
+    {% if cat_total > 0 %}
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle mb-0" id="comment-category-table">
+            <thead class="table-secondary">
+                <tr>
+                    <th class="ps-3" style="min-width:240px;">Comment Category</th>
+                    <th class="text-center" style="width:110px;">Selections</th>
+                    <th style="min-width:180px;">Share of Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cat in comment_category_breakdown %}
+                <tr class="comment-cat-row" style="cursor:pointer;"
+                    data-category="{{ cat.category | e }}"
+                    data-reviews='{{ cat.reviews | tojson }}'>
+                    <td class="ps-3 fw-semibold">
+                        {{ cat.category }}
+                        <i class="bi bi-chevron-right ms-1 text-muted" style="font-size:0.75rem;"></i>
+                    </td>
+                    <td class="text-center">
+                        {% if cat.count > 0 %}
+                        <span class="badge rounded-pill bg-primary fs-6 px-3">{{ cat.count }}</span>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if cat.count > 0 %}
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="progress flex-grow-1" style="height:10px; max-width:160px;">
+                                <div class="progress-bar bg-primary" style="width:{{ [cat.pct, 100] | min }}%;"></div>
+                            </div>
+                            <span class="text-muted" style="font-size:0.78rem; white-space:nowrap;">{{ cat.pct }}%</span>
+                        </div>
+                        {% else %}
+                        <span class="text-muted small">0%</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td class="ps-3">TOTAL</td>
+                    <td class="text-center">{{ cat_total }}</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-chat-left-text fs-3 d-block mb-2"></i>
+        No preliminary review return comments found for this period.
+    </div>
+    {% endif %}
+</div>
 <div class="card shadow-sm mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span class="fw-semibold">
@@ -222,7 +288,10 @@
                 {% if search %} — filtered: "{{ search }}"{% endif %}
             </span>
         </span>
-        <small class="text-muted">{{ analyst_list | length }} analyst{{ 's' if analyst_list | length != 1 else '' }}</small>
+        <span class="d-flex align-items-center gap-3">
+            <span class="text-muted fw-normal" style="font-size:0.8rem;"><i class="bi bi-hand-index me-1"></i>Click a row to see preliminary review details</span>
+            <small class="text-muted">{{ analyst_list | length }} analyst{{ 's' if analyst_list | length != 1 else '' }}</small>
+        </span>
     </div>
 
     <div class="table-responsive">
@@ -257,10 +326,13 @@
                 {% for analyst in analyst_list %}
                 {% set total_tests = analyst.food + analyst.tox + analyst.pharm %}
                 {% set first_pct = ((analyst.accepted_first / (analyst.accepted_first + analyst.returned) * 100) | round(0) | int) if (analyst.accepted_first + analyst.returned) > 0 else 0 %}
-                <tr>
+                <tr class="analyst-row" style="cursor:pointer;"
+                    data-analyst="{{ analyst.name | e }}"
+                    data-reviews='{{ analyst.reviews | tojson }}'>
                     <!-- Analyst Name -->
                     <td class="ps-3 fw-semibold">
                         {{ analyst.name }}
+                        <i class="bi bi-chevron-right ms-1 text-muted" style="font-size:0.75rem;"></i>
                         <div class="text-muted fw-normal" style="font-size:0.72rem;">
                             {{ total_tests }} {{ 'sample' if count_by == 'sample' else 'assignment' }}{{ 's' if total_tests != 1 else '' }}
                         </div>
@@ -688,4 +760,159 @@
 }());
 </script>
 {% endif %}
+
+<!-- ── Analyst Preliminary Review Detail Modal ───────────────── -->
+<div class="modal fade" id="analystReviewsModal" tabindex="-1" aria-labelledby="analystReviewsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="analystReviewsModalLabel">
+                    <i class="bi bi-person me-2"></i>Preliminary Review History — <span id="analystModalName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-sm table-bordered align-middle mb-0" id="analystReviewsTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3">Lab Number</th>
+                            <th>Reviewer</th>
+                            <th>Test</th>
+                            <th class="text-center">Action</th>
+                            <th>Date Reviewed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="analystReviewsBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small me-auto" id="analystReviewsCount"></span>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Comment Category Drill-down Modal ─────────────────────── -->
+<div class="modal fade" id="commentCategoryModal" tabindex="-1" aria-labelledby="commentCategoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="commentCategoryModalLabel">
+                    <i class="bi bi-chat-left-text me-2"></i>Records for: <span id="categoryModalName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-sm table-bordered align-middle mb-0" id="commentCategoryTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3">Lab Number</th>
+                            <th>Analyst</th>
+                            <th>Test</th>
+                            <th class="text-center">Action</th>
+                            <th>Date Reviewed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="commentCategoryBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <span class="text-muted small me-auto" id="commentCategoryCount"></span>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const ACTION_BADGE_MAP = {
+        approved:     '<span class="badge bg-success">Approved</span>',
+        returned:     '<span class="badge bg-warning text-dark">Returned</span>',
+        not_accepted: '<span class="badge bg-danger">Not Accepted</span>',
+    };
+
+    function buildActionCell(action) {
+        const td = document.createElement('td');
+        td.className = 'text-center';
+        td.innerHTML = ACTION_BADGE_MAP[action] || '<span class="badge bg-secondary"></span>';
+        if (!ACTION_BADGE_MAP[action]) { td.querySelector('span').textContent = action; }
+        return td;
+    }
+
+    function buildReviewRows(reviews, colOrder) {
+        // colOrder: array of field names matching the table columns (excluding action)
+        // Supports {lab_number, analyst|reviewer, test_name, action, reviewed_at}
+        const fragment = document.createDocumentFragment();
+        if (reviews.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.setAttribute('colspan', '5');
+            td.className = 'text-center text-muted py-3';
+            td.textContent = 'No review records found.';
+            tr.appendChild(td);
+            fragment.appendChild(tr);
+            return fragment;
+        }
+        reviews.forEach(function (r) {
+            const tr = document.createElement('tr');
+            colOrder.forEach(function (key, idx) {
+                if (key === 'action') {
+                    tr.appendChild(buildActionCell(r.action));
+                } else {
+                    const td = document.createElement('td');
+                    if (idx === 0) { td.className = 'ps-3 fw-semibold'; }
+                    td.textContent = r[key] || '—';
+                    tr.appendChild(td);
+                }
+            });
+            fragment.appendChild(tr);
+        });
+        return fragment;
+    }
+
+    // ── Analyst Performance Table click handler ─────────────────
+    document.querySelectorAll('.analyst-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+            const name    = this.dataset.analyst;
+            const reviews = JSON.parse(this.dataset.reviews);
+
+            document.getElementById('analystModalName').textContent = name;
+            document.getElementById('analystReviewsCount').textContent =
+                reviews.length + ' review' + (reviews.length !== 1 ? 's' : '');
+
+            const tbody = document.getElementById('analystReviewsBody');
+            tbody.innerHTML = '';
+            tbody.appendChild(buildReviewRows(
+                reviews,
+                ['lab_number', 'reviewer', 'test_name', 'action', 'reviewed_at']
+            ));
+
+            new bootstrap.Modal(document.getElementById('analystReviewsModal')).show();
+        });
+    });
+
+    // ── Comment Category table click handler ────────────────────
+    document.querySelectorAll('.comment-cat-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+            const category = this.dataset.category;
+            const reviews  = JSON.parse(this.dataset.reviews);
+
+            document.getElementById('categoryModalName').textContent = category;
+            document.getElementById('commentCategoryCount').textContent =
+                reviews.length + ' record' + (reviews.length !== 1 ? 's' : '');
+
+            const tbody = document.getElementById('commentCategoryBody');
+            tbody.innerHTML = '';
+            tbody.appendChild(buildReviewRows(
+                reviews,
+                ['lab_number', 'analyst', 'test_name', 'action', 'reviewed_at']
+            ));
+
+            new bootstrap.Modal(document.getElementById('commentCategoryModal')).show();
+        });
+    });
+}());
+</script>
 {% endblock %}
