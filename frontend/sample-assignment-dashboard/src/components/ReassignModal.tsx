@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Analyst, AssignmentRecord } from '../models/types';
 
 interface ReassignModalProps {
@@ -18,6 +18,13 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
   const [submitting, setSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog when it mounts so keyboard/screen reader
+  // users aren't left interacting with content behind the modal.
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
 
   const eligibleAnalysts = analysts.filter(
     (a) => a.activeStatus === 'Active' && a.permittedTestTypes.includes(record.test.testName),
@@ -46,12 +53,14 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
   };
 
   return (
-    <div className="modal-overlay" role="presentation">
+    <div className="modal-overlay">
       <div
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        ref={dialogRef}
+        tabIndex={-1}
       >
         <h2 id={titleId}>{record.analyst ? 'Reassign work' : 'Assign work'}</h2>
         <p>

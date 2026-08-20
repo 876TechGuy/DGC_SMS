@@ -54,6 +54,10 @@ export function AssignmentTable({
   const toggleExpanded = (id: string) =>
     setExpandedId((current) => (current === id ? null : id));
 
+  // Sample ID, Test, Status, Priority, Due date, Actions, plus the
+  // Analyst column (supervisor only) and Assigned date/Instructions column.
+  const columnCount = 6 + 1 + (isSupervisor ? 1 : 0);
+
   return (
     <>
       {/* Desktop table - hidden on narrow viewports via CSS. */}
@@ -132,7 +136,7 @@ export function AssignmentTable({
                 </tr>
                 {expanded && (
                   <tr className="assignment-table__detail-row">
-                    <td colSpan={isSupervisor ? 8 : 7}>
+                    <td colSpan={columnCount}>
                       <AssignmentDetails record={record} />
                     </td>
                   </tr>

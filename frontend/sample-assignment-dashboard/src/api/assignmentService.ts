@@ -59,12 +59,14 @@ export interface ReassignInput {
  */
 export async function reassignTest(input: ReassignInput): Promise<AssignmentRecord> {
   const { assignmentId, newAnalystId, performedBy, reason } = input;
-  if (!reason.trim()) {
-    throw new AssignmentServiceError('A reassignment reason is required.');
-  }
   const target = records.find((r) => r.assignment.id === assignmentId);
   if (!target) {
     throw new AssignmentServiceError(`Assignment ${assignmentId} not found.`);
+  }
+  // A reason is only required when moving work away from an analyst who
+  // already holds it; an initial assignment of unassigned work needs none.
+  if (target.assignment.analystId !== null && !reason.trim()) {
+    throw new AssignmentServiceError('A reassignment reason is required.');
   }
   const analyst = mockAnalysts.find((a) => a.id === newAnalystId);
   if (!analyst) {
