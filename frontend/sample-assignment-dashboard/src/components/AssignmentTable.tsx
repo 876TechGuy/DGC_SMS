@@ -1,9 +1,10 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { AssignmentRecord, AuthenticatedUser } from '../models/types';
 import { formatDateTime } from '../utils/dateUtils';
 import { canManageAssignment } from '../utils/permissions';
 import { AssignmentDetails } from './AssignmentDetails';
 import { OpenWorkItemButton } from './OpenWorkItemButton';
+import { Pagination } from './Pagination';
 import { PriorityBadge } from './PriorityBadge';
 import { StatusBadge } from './StatusBadge';
 
@@ -12,6 +13,8 @@ interface AssignmentTableProps {
   records: AssignmentRecord[];
   onReassign: (record: AssignmentRecord) => void;
 }
+
+const PAGE_SIZE = 8;
 
 function rowIndicatorClass(record: AssignmentRecord): string {
   return record.assignment.overdue ? 'assignment-row--overdue' : '';
@@ -35,8 +38,22 @@ export function AssignmentTable({
   onReassign,
 }: AssignmentTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const isSupervisor = currentUser.role === 'supervisor';
   const columnCount = isSupervisor ? 7 : 6;
+
+  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect
+    setPage(1);
+  }, [records]);
+
+  const pagedRecords = records.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
 
   const toggleExpanded = (id: string) => {
     setExpandedId((current) => (current === id ? null : id));
@@ -61,7 +78,7 @@ export function AssignmentTable({
             </tr>
           </thead>
           <tbody>
-            {records.map((record) => {
+            {pagedRecords.map((record) => {
               const canManage = canManageAssignment(currentUser);
               const expanded = expandedId === record.assignment.id;
 
@@ -95,7 +112,7 @@ export function AssignmentTable({
                       <div className="assignment-actions">
                         <OpenWorkItemButton record={record} />
                         {canManage && (
-                          <button type="button" onClick={() => onReassign(record)}>
+                          <button type="button" className="assignment-actions__reassign" onClick={() => onReassign(record)}>
                             {record.analyst ? 'Reassign' : 'Assign'}
                           </button>
                         )}
@@ -117,7 +134,7 @@ export function AssignmentTable({
       </div>
 
       <ul className="assignment-cards assignment-table--mobile">
-        {records.map((record) => {
+        {pagedRecords.map((record) => {
           const canManage = canManageAssignment(currentUser);
           const expanded = expandedId === record.assignment.id;
 
@@ -145,7 +162,7 @@ export function AssignmentTable({
               <div className="assignment-actions">
                 <OpenWorkItemButton record={record} />
                 {canManage && (
-                  <button type="button" onClick={() => onReassign(record)}>
+                  <button type="button" className="assignment-actions__reassign" onClick={() => onReassign(record)}>
                     {record.analyst ? 'Reassign' : 'Assign'}
                   </button>
                 )}
@@ -163,6 +180,14 @@ export function AssignmentTable({
           );
         })}
       </ul>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={records.length}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
     </>
   );
 }

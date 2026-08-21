@@ -4,11 +4,12 @@ import type { Analyst, AssignmentRecord } from '../models/types';
 interface ReassignModalProps {
   record: AssignmentRecord;
   analysts: Analyst[];
+  error?: string | null;
   onConfirm: (newAnalystId: string, reason: string) => Promise<void>;
   onCancel: () => void;
 }
 
-export function ReassignModal({ record, analysts, onConfirm, onCancel }: ReassignModalProps) {
+export function ReassignModal({ record, analysts, error, onConfirm, onCancel }: ReassignModalProps) {
   const eligibleAnalysts = useMemo(
     () => analysts.filter((analyst) => analyst.activeStatus === 'Active'),
     [analysts],
@@ -26,6 +27,21 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
   useEffect(() => {
     dialogRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    // If the confirmation attempt failed, drop back to the edit step so the
+    // error message and form are visible together instead of being hidden.
+    // oxlint-disable-next-line react/set-state-in-effect
+    if (error) setConfirming(false);
+  }, [error]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
 
   const selectedAnalyst = eligibleAnalysts.find((analyst) => analyst.id === selectedAnalystId) ?? null;
 
@@ -53,7 +69,12 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
   };
 
   return (
-    <div className="modal-overlay">
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
       <div
         className="modal"
         role="dialog"
@@ -95,16 +116,21 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
                 />
               </label>
             )}
-            {validationError && (
+            {(validationError || error) && (
               <p role="alert" className="modal__error">
-                {validationError}
+                {validationError || error}
               </p>
             )}
             <div className="modal__actions">
               <button type="button" onClick={onCancel}>
                 Cancel
               </button>
-              <button type="button" onClick={handleProceedToConfirm}>
+              <button
+                type="button"
+                className="modal__actions--primary"
+                onClick={handleProceedToConfirm}
+                disabled={eligibleAnalysts.length === 0}
+              >
                 Continue
               </button>
             </div>
@@ -122,7 +148,12 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
               <button type="button" onClick={() => setConfirming(false)} disabled={submitting}>
                 Back
               </button>
-              <button type="button" onClick={handleConfirm} disabled={submitting}>
+              <button
+                type="button"
+                className="modal__actions--primary"
+                onClick={handleConfirm}
+                disabled={submitting}
+              >
                 {submitting ? 'Confirming…' : 'Confirm'}
               </button>
             </div>

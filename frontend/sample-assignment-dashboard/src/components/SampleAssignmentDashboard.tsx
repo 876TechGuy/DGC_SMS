@@ -50,6 +50,16 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
   const isSupervisor = currentUser.role === 'supervisor';
   const summary = computeSummary(records);
 
+  const openReassignModal = (record: AssignmentRecord) => {
+    setActionError(null);
+    setReassignTarget(record);
+  };
+
+  const closeReassignModal = () => {
+    setActionError(null);
+    setReassignTarget(null);
+  };
+
   const handleReassignConfirm = async (newAnalystId: string, reason: string) => {
     if (!reassignTarget) return;
     const ok = await reassign(reassignTarget.assignment.id, newAnalystId, reason);
@@ -116,13 +126,13 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
             <GroupedAssignments
               currentUser={currentUser}
               records={records}
-              onReassign={setReassignTarget}
+              onReassign={openReassignModal}
             />
           ) : (
             <AssignmentTable
               currentUser={currentUser}
               records={records}
-              onReassign={setReassignTarget}
+              onReassign={openReassignModal}
             />
           )}
 
@@ -130,8 +140,9 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
             <ReassignModal
               record={reassignTarget}
               analysts={analysts}
+              error={actionError}
               onConfirm={handleReassignConfirm}
-              onCancel={() => setReassignTarget(null)}
+              onCancel={closeReassignModal}
             />
           )}
         </>
