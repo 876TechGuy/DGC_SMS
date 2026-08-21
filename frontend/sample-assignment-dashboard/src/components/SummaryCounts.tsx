@@ -4,17 +4,12 @@ interface SummaryCountsProps {
   summary: DashboardSummary;
 }
 
-/**
- * Top-row summary counts. These reflect workload volume only and must
- * never be presented or used as an employee performance rating.
- */
 export function SummaryCounts({ summary }: SummaryCountsProps) {
-  const items: Array<{ label: string; value: number; tone?: string }> = [
-    { label: 'Total assigned', value: summary.totalAssigned },
-    { label: 'Unassigned', value: summary.unassigned },
-    { label: 'Overdue', value: summary.overdue, tone: 'danger' },
-    { label: 'Blocked', value: summary.blocked, tone: 'warning' },
-    { label: 'Completed', value: summary.completed, tone: 'success' },
+  const items: Array<{ label: string; value: number; tone?: string; accent: string }> = [
+    { label: 'Total Assigned', value: summary.totalAssigned, accent: '◼' },
+    { label: 'In Progress', value: summary.inProgress, tone: 'info', accent: '◍' },
+    { label: 'Overdue', value: summary.overdue, tone: 'danger', accent: '▲' },
+    { label: 'Completed', value: summary.completed, tone: 'success', accent: '✓' },
   ];
 
   return (
@@ -24,7 +19,12 @@ export function SummaryCounts({ summary }: SummaryCountsProps) {
           key={item.label}
           className={`summary-counts__item${item.tone ? ` summary-counts__item--${item.tone}` : ''}`}
         >
-          <dt>{item.label}</dt>
+          <dt>
+            <span className="summary-counts__accent" aria-hidden="true">
+              {item.accent}
+            </span>
+            {item.label}
+          </dt>
           <dd>{item.value}</dd>
         </div>
       ))}

@@ -18,14 +18,14 @@ export function FilterBar({ filters, onChange, onReset }: FilterBarProps) {
 
   return (
     <div className="filter-bar" role="search">
-      <label className="filter-bar__field">
+      <label className="filter-bar__field filter-bar__field--search">
         <span>Search</span>
         <input
           type="text"
           value={filters.searchText}
           onChange={handleSearch}
-          placeholder="Analyst, sample ID, test, batch, status, priority"
-          aria-label="Search analyst, sample ID, test name, batch, status, or priority"
+          placeholder="Analyst, sample number, location, test, status, or priority"
+          aria-label="Search analyst, sample number, location, test name, status, or priority"
         />
       </label>
       <label className="filter-bar__field">

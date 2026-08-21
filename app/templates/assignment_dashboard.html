@@ -17,6 +17,7 @@
 <!-- Pass authenticated user context to widget before loading module -->
 <script>
   window.__ASSIGNMENT_DASHBOARD_USER__ = {{ user_context|tojson }};
+  window.__ASSIGNMENT_DASHBOARD_CSRF__ = {{ csrf_token_value|tojson }};
 </script>
 
 <!-- Widget Stylesheet
@@ -24,8 +25,8 @@
      whenever the widget is rebuilt. For production deployments, consider
      using a manifest.json approach to automate this mapping.
 -->
-<link rel="stylesheet" href="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-CBAWMPj7.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-Bw80B9i-.css') }}">
 
 <!-- Widget Application Script -->
-<script type="module" src="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-dkDqMkjl.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-Un2_1kZC.js') }}"></script>
 {% endblock %}

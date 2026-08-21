@@ -1,12 +1,15 @@
 import type { AssignmentStatus } from '../models/types';
 
 const STATUS_CLASS: Record<AssignmentStatus, string> = {
-  Unassigned: 'badge badge--neutral',
   Assigned: 'badge badge--info',
   'In Progress': 'badge badge--progress',
+  'Report Submitted': 'badge badge--progress',
+  'Preliminary Review': 'badge badge--neutral',
+  'Senior Chemist Review': 'badge badge--neutral',
+  'Returned for Correction': 'badge badge--warning',
+  Accepted: 'badge badge--success',
+  Rejected: 'badge badge--danger',
   Completed: 'badge badge--success',
-  'On Hold': 'badge badge--hold',
-  Escalated: 'badge badge--danger',
 };
 
 export function StatusBadge({ status }: { status: AssignmentStatus }) {
