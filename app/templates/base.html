@@ -545,6 +545,12 @@
                 </li>
                 {% endif %}
                 <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'main.assignment_dashboard' %}active{% endif %}"
+                       href="{{ url_for('main.assignment_dashboard') }}">
+                        <i class="bi bi-clipboard2-check"></i> Assignments
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'main.notifications' %}active{% endif %}"
                        href="{{ url_for('main.notifications') }}">
                         <i class="bi bi-bell"></i> Notifications
