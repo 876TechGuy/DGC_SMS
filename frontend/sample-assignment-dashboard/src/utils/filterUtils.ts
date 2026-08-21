@@ -1,6 +1,4 @@
-/** Filtering, searching, sorting and summary logic for assignment records. */
 import type { AssignmentRecord, AssignmentStatus, TestPriority } from '../models/types';
-import { isOverdue, isBlocked } from './dateUtils';
 
 export interface DashboardFilters {
   searchText: string;
@@ -22,25 +20,47 @@ const PRIORITY_WEIGHT: Record<TestPriority, number> = {
   Routine: 1,
 };
 
-/** Applies text search across analyst, sample ID, test name, batch, status and priority. */
+const COMPLETED_STATUSES: AssignmentStatus[] = ['Accepted', 'Completed'];
+
+function compareOptionalDate(
+  a: string | null,
+  b: string | null,
+  direction: 'asc' | 'desc',
+): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
+  const aTime = new Date(a).getTime();
+  const bTime = new Date(b).getTime();
+
+  if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+  if (Number.isNaN(aTime)) return 1;
+  if (Number.isNaN(bTime)) return -1;
+
+  const difference = aTime - bTime;
+  return direction === 'asc' ? difference : -difference;
+}
+
 export function searchRecords(
   records: AssignmentRecord[],
   searchText: string,
 ): AssignmentRecord[] {
   const query = searchText.trim().toLowerCase();
   if (!query) return records;
+
   return records.filter((record) => {
     const haystack = [
       record.analyst?.displayName ?? '',
-      record.sample.id,
       record.sample.accessionNumber,
+      record.sample.location ?? '',
       record.test.testName,
-      record.sample.location,
       record.assignment.status,
-      record.test.priority,
+      record.assignment.priority,
     ]
       .join(' ')
       .toLowerCase();
+
     return haystack.includes(query);
   });
 }
@@ -58,10 +78,9 @@ export function filterByPriority(
   priority: TestPriority | 'All',
 ): AssignmentRecord[] {
   if (priority === 'All') return records;
-  return records.filter((record) => record.test.priority === priority);
+  return records.filter((record) => record.assignment.priority === priority);
 }
 
-/** Applies the full filter set (search + status + priority) in one pass. */
 export function applyFilters(
   records: AssignmentRecord[],
   filters: DashboardFilters,
@@ -79,37 +98,47 @@ export function sortRecords(
   direction: 'asc' | 'desc' = 'asc',
 ): AssignmentRecord[] {
   const sorted = [...records].sort((a, b) => {
-    let cmp = 0;
+    let comparison = 0;
+
     switch (field) {
       case 'dueDate':
-        cmp =
-          new Date(a.assignment.dueDateTime).getTime() -
-          new Date(b.assignment.dueDateTime).getTime();
+        comparison = compareOptionalDate(
+          a.assignment.dueDateTime,
+          b.assignment.dueDateTime,
+          direction,
+        );
         break;
       case 'priority':
-        cmp = PRIORITY_WEIGHT[a.test.priority] - PRIORITY_WEIGHT[b.test.priority];
+        comparison = PRIORITY_WEIGHT[a.assignment.priority] - PRIORITY_WEIGHT[b.assignment.priority];
         break;
       case 'sampleAge':
-        cmp =
-          new Date(a.sample.receivedDateTime).getTime() -
-          new Date(b.sample.receivedDateTime).getTime();
+        comparison = compareOptionalDate(
+          a.sample.receivedDateTime,
+          b.sample.receivedDateTime,
+          direction,
+        );
         break;
       case 'status':
-        cmp = a.assignment.status.localeCompare(b.assignment.status);
+        comparison = a.assignment.status.localeCompare(b.assignment.status);
         break;
       default:
-        cmp = 0;
+        comparison = 0;
     }
-    return direction === 'asc' ? cmp : -cmp;
+    return field === 'priority' || field === 'status'
+      ? direction === 'asc'
+        ? comparison
+        : -comparison
+      : comparison;
   });
+
   return sorted;
 }
 
-/** Groups records by analyst display name (falling back to "Unassigned"). */
 export function groupByAnalyst(
   records: AssignmentRecord[],
 ): Map<string, AssignmentRecord[]> {
   const groups = new Map<string, AssignmentRecord[]>();
+
   for (const record of records) {
     const key = record.analyst?.displayName ?? 'Unassigned';
     const existing = groups.get(key);
@@ -119,38 +148,30 @@ export function groupByAnalyst(
       groups.set(key, [record]);
     }
   }
+
   return groups;
 }
 
 export interface DashboardSummary {
   totalAssigned: number;
-  unassigned: number;
+  inProgress: number;
   overdue: number;
-  blocked: number;
   completed: number;
 }
 
-/**
- * Computes the top-row summary counts.
- *
- * These counts describe workload volume only - they are NOT a measure of
- * individual employee performance and must not be used for that purpose
- * (e.g. do not rank or compare analysts using these numbers).
- */
 export function computeSummary(records: AssignmentRecord[]): DashboardSummary {
   return records.reduce<DashboardSummary>(
-    (summary, record) => {
-      const { assignment, test } = record;
-      const overdue = isOverdue(assignment.dueDateTime, test.completedDateTime);
-      const blocked = isBlocked(assignment.status, test.blockedReason);
-      return {
-        totalAssigned: summary.totalAssigned + (assignment.status !== 'Unassigned' ? 1 : 0),
-        unassigned: summary.unassigned + (assignment.status === 'Unassigned' ? 1 : 0),
-        overdue: summary.overdue + (overdue ? 1 : 0),
-        blocked: summary.blocked + (blocked ? 1 : 0),
-        completed: summary.completed + (assignment.status === 'Completed' ? 1 : 0),
-      };
-    },
-    { totalAssigned: 0, unassigned: 0, overdue: 0, blocked: 0, completed: 0 },
+    (summary, record) => ({
+      totalAssigned: summary.totalAssigned + 1,
+      inProgress:
+        summary.inProgress +
+        (COMPLETED_STATUSES.includes(record.assignment.status) || record.assignment.status === 'Rejected'
+          ? 0
+          : 1),
+      overdue: summary.overdue + (record.assignment.overdue ? 1 : 0),
+      completed:
+        summary.completed + (COMPLETED_STATUSES.includes(record.assignment.status) ? 1 : 0),
+    }),
+    { totalAssigned: 0, inProgress: 0, overdue: 0, completed: 0 },
   );
 }

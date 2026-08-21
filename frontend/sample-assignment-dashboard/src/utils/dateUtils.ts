@@ -1,16 +1,7 @@
-/** Date/time helpers used across the dashboard for overdue/age calculations. */
-
-export function isOverdue(dueDateTime: string, completedDateTime?: string | null): boolean {
-  if (completedDateTime) return false;
-  return new Date(dueDateTime).getTime() < Date.now();
-}
-
-export function isBlocked(status: string, blockedReason?: string | null): boolean {
-  return status === 'On Hold' || Boolean(blockedReason);
-}
-
-export function sampleAgeHours(receivedDateTime: string): number {
+export function sampleAgeHours(receivedDateTime: string | null | undefined): number {
+  if (!receivedDateTime) return 0;
   const receivedMs = new Date(receivedDateTime).getTime();
+  if (Number.isNaN(receivedMs)) return 0;
   return Math.max(0, Math.round((Date.now() - receivedMs) / (1000 * 60 * 60)));
 }
 

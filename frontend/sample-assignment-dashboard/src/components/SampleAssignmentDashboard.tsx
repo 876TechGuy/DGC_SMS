@@ -1,13 +1,5 @@
-/**
- * SampleAssignmentDashboard - the main embeddable widget.
- *
- * Renders a supervisor view (all analysts' assignments, grouped by
- * analyst, with reassignment/assignment controls) or an analyst view
- * (only that analyst's own work, with status update controls),
- * depending on `currentUser.role`.
- */
 import { useState } from 'react';
-import type { AssignmentRecord, AssignmentStatus, AuthenticatedUser } from '../models/types';
+import type { AssignmentRecord, AuthenticatedUser } from '../models/types';
 import { useAssignmentDashboard } from '../state/useAssignmentDashboard';
 import { computeSummary } from '../utils/filterUtils';
 import { canManageAssignment } from '../utils/permissions';
@@ -28,6 +20,8 @@ export interface SampleAssignmentDashboardProps {
 }
 
 export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashboardProps) {
+  const hasRecognizedRole =
+    currentUser.role === 'supervisor' || currentUser.role === 'analyst';
   const {
     loadStatus,
     errorMessage,
@@ -42,30 +36,19 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
     records,
     reload,
     reassign,
-    updateStatus,
     actionError,
     setActionError,
-  } = useAssignmentDashboard(currentUser);
+  } = useAssignmentDashboard(currentUser, hasRecognizedRole);
 
   const [groupByAnalystView, setGroupByAnalystView] = useState(true);
   const [reassignTarget, setReassignTarget] = useState<AssignmentRecord | null>(null);
 
-  // AUTHZ CHECK: block rendering entirely for roles not recognised by the
-  // widget. A real integration should perform this check server-side too.
-  if (currentUser.role !== 'supervisor' && currentUser.role !== 'analyst') {
+  if (!hasRecognizedRole) {
     return <NoPermissionState />;
   }
 
   const isSupervisor = currentUser.role === 'supervisor';
   const summary = computeSummary(records);
-
-  const handleUpdateStatus = async (
-    record: AssignmentRecord,
-    status: AssignmentStatus,
-    blockedReason?: string,
-  ) => {
-    await updateStatus(record.assignment.id, status, blockedReason);
-  };
 
   const handleReassignConfirm = async (newAnalystId: string, reason: string) => {
     if (!reassignTarget) return;
@@ -76,7 +59,13 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
   return (
     <div className="sample-assignment-dashboard" aria-label="Sample and test assignment dashboard">
       <header className="sample-assignment-dashboard__header">
-        <h2>{isSupervisor ? 'Team assignments' : 'My assignments'}</h2>
+        <div>
+          <p className="sample-assignment-dashboard__eyebrow">Assignment operations</p>
+          <h2>{isSupervisor ? 'Team assignments' : 'My assignments'}</h2>
+          <p className="sample-assignment-dashboard__subtitle">
+            Track current workload, open source work items, and rebalance assignments when needed.
+          </p>
+        </div>
       </header>
 
       {loadStatus === 'loading' && <LoadingState />}
@@ -88,29 +77,19 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
         <>
           <SummaryCounts summary={summary} />
 
-          <FilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
-
-          {actionError && (
-            <p role="alert" className="sample-assignment-dashboard__action-error">
-              {actionError}
-              <button type="button" onClick={() => setActionError(null)}>
-                Dismiss
-              </button>
-            </p>
-          )}
-
-          <div className="sample-assignment-dashboard__controls">
-            {isSupervisor && (
-              <label className="sample-assignment-dashboard__group-toggle">
-                <input
-                  type="checkbox"
-                  checked={groupByAnalystView}
-                  onChange={(e) => setGroupByAnalystView(e.target.checked)}
-                />
-                Group by analyst
-              </label>
-            )}
-            {!isSupervisor && (
+          <div className="sample-assignment-dashboard__toolbar">
+            <FilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
+            <div className="sample-assignment-dashboard__controls">
+              {isSupervisor && (
+                <label className="sample-assignment-dashboard__group-toggle">
+                  <input
+                    type="checkbox"
+                    checked={groupByAnalystView}
+                    onChange={(e) => setGroupByAnalystView(e.target.checked)}
+                  />
+                  <span>Group by analyst</span>
+                </label>
+              )}
               <SortControl
                 sortField={sortField}
                 sortDirection={sortDirection}
@@ -119,8 +98,17 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
                   setSortDirection(direction);
                 }}
               />
-            )}
+            </div>
           </div>
+
+          {actionError && (
+            <p role="alert" className="sample-assignment-dashboard__action-error">
+              <span>{actionError}</span>
+              <button type="button" onClick={() => setActionError(null)}>
+                Dismiss
+              </button>
+            </p>
+          )}
 
           {records.length === 0 ? (
             <EmptyState />
@@ -129,14 +117,12 @@ export function SampleAssignmentDashboard({ currentUser }: SampleAssignmentDashb
               currentUser={currentUser}
               records={records}
               onReassign={setReassignTarget}
-              onUpdateStatus={handleUpdateStatus}
             />
           ) : (
             <AssignmentTable
               currentUser={currentUser}
               records={records}
               onReassign={setReassignTarget}
-              onUpdateStatus={handleUpdateStatus}
             />
           )}
 

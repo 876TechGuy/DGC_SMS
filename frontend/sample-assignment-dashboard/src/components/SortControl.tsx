@@ -9,7 +9,7 @@ interface SortControlProps {
 const OPTIONS: Array<{ value: SortField; label: string }> = [
   { value: 'dueDate', label: 'Due date' },
   { value: 'priority', label: 'Priority' },
-  { value: 'sampleAge', label: 'Sample age' },
+  { value: 'sampleAge', label: 'Received date' },
   { value: 'status', label: 'Status' },
 ];
 
@@ -23,9 +23,9 @@ export function SortControl({ sortField, sortDirection, onChange }: SortControlP
           onChange={(e) => onChange(e.target.value as SortField, sortDirection)}
           aria-label="Sort assignments by"
         >
-          {OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
+          {OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>

@@ -1,4 +1,3 @@
-/** Public entry point for embedding this widget in a host application. */
 export { SampleAssignmentDashboard } from './components/SampleAssignmentDashboard';
 export type { SampleAssignmentDashboardProps } from './components/SampleAssignmentDashboard';
 export type {

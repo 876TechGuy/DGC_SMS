@@ -1,125 +1,99 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  __resetForTesting,
   AssignmentServiceError,
+  fetchAnalysts,
   fetchAssignmentRecords,
   reassignTest,
-  updateAssignmentStatus,
 } from '../api/assignmentService';
-import { clearAuditLogForTesting, getAuditLog } from '../utils/auditLog';
+import { analystsFixture, buildAssignmentRecordsFixture } from '../test/fixtures';
 
 describe('assignmentService', () => {
+  const fetchMock = vi.fn();
+
   beforeEach(() => {
-    __resetForTesting();
-    clearAuditLogForTesting();
+    vi.stubGlobal('fetch', fetchMock);
+    window.__ASSIGNMENT_DASHBOARD_CSRF__ = 'csrf-token';
+  });
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    vi.unstubAllGlobals();
+    delete window.__ASSIGNMENT_DASHBOARD_CSRF__;
   });
 
   it('fetches assignment records', async () => {
-    const records = await fetchAssignmentRecords();
-    expect(records.length).toBeGreaterThan(0);
-  });
-
-  it('assigns an unassigned test to an active analyst', async () => {
-    const updated = await reassignTest({
-      assignmentId: 'assignment-test-2',
-      newAnalystId: 'analyst-2',
-      performedBy: 'supervisor-1',
-      reason: 'Initial assignment',
-    });
-    expect(updated.assignment.analystId).toBe('analyst-2');
-    expect(updated.assignment.status).toBe('Assigned');
-    expect(updated.history.at(-1)?.action).toBe('Assigned');
-  });
-
-  it('reassigns a test already assigned and requires a reason', async () => {
-    await expect(
-      reassignTest({
-        assignmentId: 'assignment-test-1',
-        newAnalystId: 'analyst-2',
-        performedBy: 'supervisor-1',
-        reason: '   ',
+    const records = buildAssignmentRecordsFixture();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ records }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       }),
-    ).rejects.toThrow(AssignmentServiceError);
+    );
 
-    const updated = await reassignTest({
-      assignmentId: 'assignment-test-1',
-      newAnalystId: 'analyst-2',
-      performedBy: 'supervisor-1',
-      reason: 'Workload rebalancing',
+    await expect(fetchAssignmentRecords()).resolves.toEqual(records);
+    expect(fetchMock).toHaveBeenCalledWith('/api/assignments/records', {
+      credentials: 'same-origin',
     });
-    expect(updated.assignment.analystId).toBe('analyst-2');
-    expect(updated.assignment.reassignmentReason).toBe('Workload rebalancing');
-    expect(updated.history.at(-1)?.action).toBe('Reassigned');
   });
 
-  it('rejects assigning to an inactive analyst', async () => {
-    await expect(
-      reassignTest({
-        assignmentId: 'assignment-test-2',
-        newAnalystId: 'analyst-4',
-        performedBy: 'supervisor-1',
-        reason: 'test',
+  it('fetches analysts', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ analysts: analystsFixture }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       }),
-    ).rejects.toThrow(/not an active analyst/);
-  });
+    );
 
-  it('records an audit log entry for reassignment', async () => {
-    await reassignTest({
-      assignmentId: 'assignment-test-2',
-      newAnalystId: 'analyst-2',
-      performedBy: 'supervisor-1',
-      reason: 'Initial assignment',
+    await expect(fetchAnalysts()).resolves.toEqual(analystsFixture);
+    expect(fetchMock).toHaveBeenCalledWith('/api/assignments/analysts', {
+      credentials: 'same-origin',
     });
-    const log = getAuditLog();
-    expect(log).toHaveLength(1);
-    expect(log[0].toAnalystId).toBe('analyst-2');
   });
 
-  it('updates assignment status through the workflow', async () => {
-    const updated = await updateAssignmentStatus({
-      assignmentId: 'assignment-test-6',
-      newStatus: 'In Progress',
-      performedBy: 'analyst-3',
-    });
-    expect(updated.assignment.status).toBe('In Progress');
-    expect(updated.test.status).toBe('In Progress');
-  });
-
-  it('marks a test completed and stamps completedDateTime', async () => {
-    const updated = await updateAssignmentStatus({
-      assignmentId: 'assignment-test-6',
-      newStatus: 'Completed',
-      performedBy: 'analyst-3',
-    });
-    expect(updated.assignment.status).toBe('Completed');
-    expect(updated.test.completedDateTime).not.toBeNull();
-  });
-
-  it('requires a reason when placing a test on hold', async () => {
-    await expect(
-      updateAssignmentStatus({
-        assignmentId: 'assignment-test-6',
-        newStatus: 'On Hold',
-        performedBy: 'analyst-3',
+  it('reassigns work with csrf and same-origin credentials', async () => {
+    const record = buildAssignmentRecordsFixture()[0];
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ record }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       }),
-    ).rejects.toThrow(AssignmentServiceError);
+    );
 
-    const updated = await updateAssignmentStatus({
-      assignmentId: 'assignment-test-6',
-      newStatus: 'On Hold',
-      performedBy: 'analyst-3',
-      blockedReason: 'Reagent shortage',
+    await expect(
+      reassignTest({ assignmentId: 'assignment-1', newAnalystId: '4', reason: 'Balance workload' }),
+    ).resolves.toEqual(record);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/assignments/assignment-1/reassign', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': 'csrf-token',
+      },
+      body: JSON.stringify({ newAnalystId: '4', reason: 'Balance workload' }),
     });
-    expect(updated.test.blockedReason).toBe('Reagent shortage');
   });
 
-  it('rejects operations on an unknown assignment id', async () => {
-    await expect(
-      updateAssignmentStatus({
-        assignmentId: 'does-not-exist',
-        newStatus: 'Completed',
-        performedBy: 'analyst-3',
+  it('uses the server error message when present', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Assignment not found.' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
       }),
-    ).rejects.toThrow(AssignmentServiceError);
+    );
+
+    await expect(fetchAssignmentRecords()).rejects.toThrow('Assignment not found.');
+  });
+
+  it('throws a friendly error on network failure', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('Network down'));
+
+    try {
+      await fetchAnalysts();
+      throw new Error('Expected fetchAnalysts to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AssignmentServiceError);
+      expect(error).toMatchObject({ message: 'Network down' });
+    }
   });
 });

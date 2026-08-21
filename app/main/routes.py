@@ -9,7 +9,9 @@ import enum
 import io
 import json
 
-from sqlalchemy import extract as sa_extract
+from sqlalchemy import extract as sa_extract, func
+from sqlalchemy.orm import joinedload
+from flask_wtf.csrf import generate_csrf
 
 from app import db
 from app.main import main_bp
@@ -481,30 +483,344 @@ def keep_alive():
 # Sample & Test Assignment Dashboard Widget
 # ---------------------------------------------------------------------------
 
+# Roles that are allowed to see every analyst's workload and reassign work.
+_ASSIGNMENT_SUPERVISOR_ROLES = (
+    Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN,
+)
+
+# AssignmentStatus buckets used for dashboard summary counts / overdue checks.
+_ASSIGNMENT_COMPLETED_STATUSES = {AssignmentStatus.COMPLETED, AssignmentStatus.ACCEPTED}
+
+
+def _is_assignment_supervisor(user):
+    return user.has_any_role(*_ASSIGNMENT_SUPERVISOR_ROLES)
+
+
 @main_bp.route('/assignments')
 @login_required
 def assignment_dashboard():
     """Serves the Sample & Test Assignment Dashboard widget.
-    
-    The widget is a standalone React SPA that handles its own state and
-    rendering. It currently uses mock data for demonstration purposes.
+
+    The widget is a standalone React SPA that fetches live data from the
+    JSON endpoints below (see ``/api/assignments/*``); it renders a
+    supervisor view (all analysts) or an analyst view (own work only)
+    depending on the role passed in ``user_context``.
     """
-    # Determine user role for the widget
-    is_supervisor = current_user.has_any_role(
-        Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN
-    )
+    is_supervisor = _is_assignment_supervisor(current_user)
     user_role = 'supervisor' if is_supervisor else 'analyst'
-    
-    # User context passed to the widget for RBAC
+
+    # User context passed to the widget for RBAC. IDs are stringified so
+    # they compare equal to the string IDs returned by the JSON API below.
     user_context = {
-        'id': current_user.id,
+        'id': str(current_user.id),
         'displayName': current_user.full_name or current_user.username,
         'role': user_role,
         'canManageAssignments': is_supervisor,
         'canViewSensitiveData': is_supervisor,
     }
-    
-    return render_template('assignment_dashboard.html', user_context=user_context)
+
+    return render_template(
+        'assignment_dashboard.html',
+        user_context=user_context,
+        csrf_token_value=generate_csrf(),
+    )
+
+
+def _assignment_priority(due_date, today):
+    """Derive a Routine/Urgent/STAT priority from the assignment's due date.
+
+    There is no dedicated priority column on ``SampleAssignment`` today, so
+    this is computed from the real ``expected_completion`` date rather than
+    fabricated: overdue work is most urgent, work due within 2 days is
+    urgent, everything else is routine.
+    """
+    if not due_date:
+        return 'Routine'
+    days_left = (due_date - today).days
+    if days_left < 0:
+        return 'STAT'
+    if days_left <= 2:
+        return 'Urgent'
+    return 'Routine'
+
+
+def _assignment_is_overdue(assignment, today):
+    return (
+        assignment.expected_completion is not None
+        and assignment.expected_completion < today
+        and assignment.status not in _ASSIGNMENT_COMPLETED_STATUSES
+    )
+
+
+def _serialize_assignment_record(assignment, today, history_entries=None):
+    """Serialize a ``SampleAssignment`` (with eager-loaded sample/chemist)
+    into the JSON shape consumed by the Assignment Dashboard widget."""
+    sample = assignment.sample
+    chemist = assignment.chemist
+    assigner = assignment.assigner
+    priority = _assignment_priority(assignment.expected_completion, today)
+    overdue = _assignment_is_overdue(assignment, today)
+    status_label = assignment.status.value if assignment.status else None
+    due_iso = (
+        assignment.expected_completion.isoformat()
+        if assignment.expected_completion else None
+    )
+    assigned_iso = (
+        assignment.assigned_date.isoformat() if assignment.assigned_date else None
+    )
+
+    return {
+        'assignment': {
+            'id': str(assignment.id),
+            'sampleId': str(assignment.sample_id),
+            'testId': str(assignment.id),
+            'analystId': str(assignment.chemist_id) if assignment.chemist_id else None,
+            'assignedBy': str(assignment.assigned_by) if assignment.assigned_by else None,
+            'assignedByName': assigner.full_name if assigner else None,
+            'assignedDateTime': assigned_iso,
+            'status': status_label,
+            'dueDateTime': due_iso,
+            'priority': priority,
+            'overdue': overdue,
+            'reassignmentReason': None,
+        },
+        'sample': {
+            'id': str(sample.id),
+            'accessionNumber': sample.lab_number,
+            'sampleName': sample.sample_name,
+            'sampleType': sample.sample_type.value if sample.sample_type else None,
+            'location': sample.parish,
+            'receivedDateTime': (
+                sample.date_received.isoformat() if sample.date_received else None
+            ),
+            'status': sample.status.value if sample.status else None,
+        },
+        'test': {
+            'id': str(assignment.id),
+            'sampleId': str(assignment.sample_id),
+            'testName': assignment.test_name,
+            'testReference': assignment.test_reference,
+            'dueDateTime': due_iso,
+            'status': status_label,
+            'priority': priority,
+            'assignedAnalystId': str(assignment.chemist_id) if assignment.chemist_id else None,
+            'assignedBy': str(assignment.assigned_by) if assignment.assigned_by else None,
+            'assignedDateTime': assigned_iso,
+            'completedDateTime': (
+                assignment.date_completed.isoformat()
+                if assignment.date_completed else None
+            ),
+            'workItemUrl': url_for(
+                'samples.assignment_detail', assignment_id=assignment.id
+            ),
+        },
+        'analyst': (
+            {
+                'id': str(chemist.id),
+                'displayName': chemist.full_name,
+                'department': chemist.branch_names,
+                'activeStatus': 'Active' if chemist.is_active_user else 'Inactive',
+            }
+            if chemist else None
+        ),
+        'history': history_entries or [],
+    }
+
+
+def _assignment_history_for_samples(sample_ids):
+    """Return {sample_id: [history entries]} for assignment-related events,
+    fetched in a single query to avoid N+1 lookups."""
+    if not sample_ids:
+        return {}
+    rows = SampleHistory.query.filter(
+        SampleHistory.sample_id.in_(sample_ids),
+        SampleHistory.action.ilike('%assign%'),
+    ).order_by(SampleHistory.created_at.desc()).all()
+
+    by_sample = {}
+    for row in rows:
+        by_sample.setdefault(row.sample_id, []).append({
+            'id': str(row.id),
+            'action': row.action,
+            'details': row.details,
+            'performedBy': str(row.performed_by) if row.performed_by else None,
+            'performedDateTime': row.created_at.isoformat() if row.created_at else None,
+        })
+    return by_sample
+
+
+@main_bp.route('/api/assignments/records')
+@login_required
+def api_assignment_records():
+    """JSON feed of sample/test assignment records backing the Assignment
+    Dashboard widget. Supervisors see every assignment; analysts only ever
+    receive rows assigned to their own user ID (enforced here, not just in
+    the client)."""
+    is_supervisor = _is_assignment_supervisor(current_user)
+
+    query = SampleAssignment.query.options(
+        joinedload(SampleAssignment.sample),
+        joinedload(SampleAssignment.chemist),
+        joinedload(SampleAssignment.assigner),
+    )
+    if not is_supervisor:
+        query = query.filter(SampleAssignment.chemist_id == current_user.id)
+
+    assignments = query.order_by(SampleAssignment.assigned_date.desc()).all()
+
+    today = jamaica_now().date()
+    history_by_sample = _assignment_history_for_samples(
+        [a.sample_id for a in assignments]
+    )
+
+    records = [
+        _serialize_assignment_record(
+            a, today, history_by_sample.get(a.sample_id, [])
+        )
+        for a in assignments
+    ]
+    return jsonify({'records': records})
+
+
+def _analyst_users():
+    """Return active users who hold the Chemist (analyst) role."""
+    rows = db.session.execute(
+        db.select(user_roles.c.user_id).where(user_roles.c.role == Role.CHEMIST)
+    ).fetchall()
+    ids = {row.user_id for row in rows}
+    # Fall back to the legacy single-role column for older accounts.
+    ids.update(u.id for u in User.query.filter(User.role == Role.CHEMIST).all())
+    if not ids:
+        return []
+    return (
+        User.query.filter(User.id.in_(ids), User.is_active_user.is_(True))
+        .order_by(User.first_name, User.last_name)
+        .all()
+    )
+
+
+@main_bp.route('/api/assignments/analysts')
+@login_required
+def api_assignment_analysts():
+    """JSON feed of analysts with aggregate workload counts, used by the
+    supervisor view and the reassignment picker."""
+    is_supervisor = _is_assignment_supervisor(current_user)
+    analysts = _analyst_users() if is_supervisor else [current_user]
+
+    today = jamaica_now().date()
+
+    # Single aggregate query for status counts per chemist (avoids N+1).
+    status_counts = db.session.query(
+        SampleAssignment.chemist_id, SampleAssignment.status,
+        func.count(SampleAssignment.id),
+    ).group_by(SampleAssignment.chemist_id, SampleAssignment.status).all()
+
+    overdue_counts = dict(db.session.query(
+        SampleAssignment.chemist_id, func.count(SampleAssignment.id),
+    ).filter(
+        SampleAssignment.expected_completion.isnot(None),
+        SampleAssignment.expected_completion < today,
+        SampleAssignment.status.notin_(_ASSIGNMENT_COMPLETED_STATUSES),
+    ).group_by(SampleAssignment.chemist_id).all())
+
+    workload_by_chemist = {}
+    for chemist_id, status, count in status_counts:
+        workload = workload_by_chemist.setdefault(
+            chemist_id, {'total': 0, 'inProgress': 0, 'overdue': 0, 'completed': 0}
+        )
+        workload['total'] += count
+        if status in _ASSIGNMENT_COMPLETED_STATUSES:
+            workload['completed'] += count
+        elif status != AssignmentStatus.REJECTED:
+            workload['inProgress'] += count
+    for chemist_id, count in overdue_counts.items():
+        workload_by_chemist.setdefault(
+            chemist_id, {'total': 0, 'inProgress': 0, 'overdue': 0, 'completed': 0}
+        )['overdue'] = count
+
+    data = [
+        {
+            'id': str(user.id),
+            'displayName': user.full_name,
+            'department': user.branch_names,
+            'activeStatus': 'Active' if user.is_active_user else 'Inactive',
+            'workload': workload_by_chemist.get(
+                user.id, {'total': 0, 'inProgress': 0, 'overdue': 0, 'completed': 0}
+            ),
+        }
+        for user in analysts
+    ]
+    return jsonify({'analysts': data})
+
+
+@main_bp.route('/api/assignments/<int:assignment_id>/reassign', methods=['POST'])
+@login_required
+def api_reassign_assignment(assignment_id):
+    """Reassigns a sample/test assignment to a different analyst.
+
+    Only supervisors (Officer, Senior Chemist, Deputy, HOD, Admin) may
+    reassign work. The reassignment is recorded to ``SampleHistory`` so it
+    shows up in the widget's assignment history for that sample.
+    """
+    if not _is_assignment_supervisor(current_user):
+        abort(403)
+
+    assignment = db.get_or_404(SampleAssignment, assignment_id)
+    payload = request.get_json(silent=True) or {}
+    reason = (payload.get('reason') or '').strip()
+
+    try:
+        new_analyst_id = int(payload.get('newAnalystId'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'A valid analyst must be selected.'}), 400
+
+    new_analyst = db.session.get(User, new_analyst_id)
+    if not new_analyst or not new_analyst.has_role(Role.CHEMIST):
+        return jsonify({'error': 'Analyst not found.'}), 404
+    if not new_analyst.is_active_user:
+        return jsonify({
+            'error': f'{new_analyst.full_name} is not an active analyst.'
+        }), 400
+
+    old_chemist = (
+        db.session.get(User, assignment.chemist_id)
+        if assignment.chemist_id else None
+    )
+    if old_chemist and old_chemist.id == new_analyst.id:
+        return jsonify({
+            'error': f'{new_analyst.full_name} is already assigned to this test.'
+        }), 400
+    if old_chemist and not reason:
+        return jsonify({'error': 'A reassignment reason is required.'}), 400
+
+    assignment.chemist_id = new_analyst.id
+    assignment.assigned_by = current_user.id
+    assignment.assigned_date = jamaica_now()
+
+    details = (
+        f'{assignment.test_name} reassigned from '
+        f'{old_chemist.full_name if old_chemist else "Unassigned"} to '
+        f'{new_analyst.full_name}.'
+    )
+    if reason:
+        details += f' Reason: {reason}'
+
+    db.session.add(SampleHistory(
+        sample_id=assignment.sample_id,
+        action='Reassigned' if old_chemist else 'Assigned',
+        details=details,
+        performed_by=current_user.id,
+        action_type='Assignment Change',
+        object_affected='Assignment',
+    ))
+    db.session.commit()
+
+    today = jamaica_now().date()
+    history_by_sample = _assignment_history_for_samples([assignment.sample_id])
+    record = _serialize_assignment_record(
+        assignment, today, history_by_sample.get(assignment.sample_id, [])
+    )
+    return jsonify({'record': record})
 
 
 # ---------------------------------------------------------------------------

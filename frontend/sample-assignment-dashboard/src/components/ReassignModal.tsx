@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Analyst, AssignmentRecord } from '../models/types';
 
 interface ReassignModalProps {
@@ -8,10 +8,13 @@ interface ReassignModalProps {
   onCancel: () => void;
 }
 
-/** Modal requiring an explicit confirmation step before reassigning work. */
 export function ReassignModal({ record, analysts, onConfirm, onCancel }: ReassignModalProps) {
+  const eligibleAnalysts = useMemo(
+    () => analysts.filter((analyst) => analyst.activeStatus === 'Active'),
+    [analysts],
+  );
   const [selectedAnalystId, setSelectedAnalystId] = useState(
-    record.analyst?.id ?? analysts[0]?.id ?? '',
+    record.analyst?.id ?? eligibleAnalysts[0]?.id ?? '',
   );
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -20,15 +23,11 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Move focus into the dialog when it mounts so keyboard/screen reader
-  // users aren't left interacting with content behind the modal.
   useEffect(() => {
     dialogRef.current?.focus();
   }, []);
 
-  const eligibleAnalysts = analysts.filter(
-    (a) => a.activeStatus === 'Active' && a.permittedTestTypes.includes(record.test.testName),
-  );
+  const selectedAnalyst = eligibleAnalysts.find((analyst) => analyst.id === selectedAnalystId) ?? null;
 
   const handleProceedToConfirm = () => {
     if (!selectedAnalystId) {
@@ -39,6 +38,7 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
       setValidationError('Provide a reason for reassigning this work.');
       return;
     }
+
     setValidationError(null);
     setConfirming(true);
   };
@@ -63,7 +63,7 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
         tabIndex={-1}
       >
         <h2 id={titleId}>{record.analyst ? 'Reassign work' : 'Assign work'}</h2>
-        <p>
+        <p className="modal__subtitle">
           {record.test.testName} for sample {record.sample.accessionNumber}
         </p>
 
@@ -76,10 +76,10 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
                 onChange={(e) => setSelectedAnalystId(e.target.value)}
                 aria-label="Select analyst"
               >
-                {eligibleAnalysts.length === 0 && <option value="">No eligible analysts</option>}
-                {eligibleAnalysts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.displayName} ({a.department})
+                {eligibleAnalysts.length === 0 && <option value="">No active analysts</option>}
+                {eligibleAnalysts.map((analyst) => (
+                  <option key={analyst.id} value={analyst.id}>
+                    {analyst.displayName} ({analyst.department})
                   </option>
                 ))}
               </select>
@@ -91,6 +91,7 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   aria-label="Reason for reassignment"
+                  rows={4}
                 />
               </label>
             )}
@@ -114,11 +115,9 @@ export function ReassignModal({ record, analysts, onConfirm, onCancel }: Reassig
           <>
             <p className="modal__confirmation">
               Confirm assigning <strong>{record.test.testName}</strong> to{' '}
-              <strong>
-                {eligibleAnalysts.find((a) => a.id === selectedAnalystId)?.displayName}
-              </strong>
-              ?
+              <strong>{selectedAnalyst?.displayName ?? 'the selected analyst'}</strong>?
             </p>
+            {reason && <p className="modal__confirmation-note">Reason: {reason}</p>}
             <div className="modal__actions">
               <button type="button" onClick={() => setConfirming(false)} disabled={submitting}>
                 Back

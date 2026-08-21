@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssignmentRecords } from '../data/mockData';
+import { buildAssignmentRecordsFixture } from '../test/fixtures';
 import {
   applyFilters,
   computeSummary,
@@ -12,19 +12,19 @@ import {
 } from '../utils/filterUtils';
 
 describe('filterUtils', () => {
-  const records = buildAssignmentRecords();
+  const records = buildAssignmentRecordsFixture();
 
-  it('searches across analyst, sample id, test name and status', () => {
-    const bySample = searchRecords(records, 'ACC-100001');
+  it('searches across analyst, sample number, test name, location, status, and priority', () => {
+    const bySample = searchRecords(records, 'FOOD-001');
     expect(bySample).toHaveLength(1);
-    expect(bySample[0].sample.id).toBe('sample-1');
+    expect(bySample[0].sample.accessionNumber).toBe('FOOD-001');
 
     const byAnalyst = searchRecords(records, 'reid');
-    expect(byAnalyst.every((r) => r.analyst?.displayName === 'A. Reid')).toBe(true);
+    expect(byAnalyst.every((record) => record.analyst?.displayName === 'A. Reid')).toBe(true);
 
-    const byTestName = searchRecords(records, 'dissolution');
-    expect(byTestName).toHaveLength(1);
-    expect(byTestName[0].test.testName).toBe('Dissolution');
+    const byLocation = searchRecords(records, 'montego');
+    expect(byLocation).toHaveLength(1);
+    expect(byLocation[0].sample.location).toBe('Montego Bay');
   });
 
   it('returns all records when search text is empty', () => {
@@ -32,58 +32,54 @@ describe('filterUtils', () => {
   });
 
   it('filters by status', () => {
-    const onHold = filterByStatus(records, 'On Hold');
-    expect(onHold.every((r) => r.assignment.status === 'On Hold')).toBe(true);
+    const completed = filterByStatus(records, 'Completed');
+    expect(completed).toHaveLength(1);
+    expect(completed.every((record) => record.assignment.status === 'Completed')).toBe(true);
     expect(filterByStatus(records, 'All')).toHaveLength(records.length);
   });
 
   it('filters by priority', () => {
     const stat = filterByPriority(records, 'STAT');
-    expect(stat.every((r) => r.test.priority === 'STAT')).toBe(true);
+    expect(stat).toHaveLength(1);
+    expect(stat.every((record) => record.assignment.priority === 'STAT')).toBe(true);
   });
 
   it('applies combined filters', () => {
     const result = applyFilters(records, {
       ...DEFAULT_FILTERS,
-      status: 'Escalated',
-      priority: 'STAT',
+      status: 'Rejected',
+      priority: 'Routine',
     });
-    expect(result.every((r) => r.assignment.status === 'Escalated' && r.test.priority === 'STAT')).toBe(
-      true,
-    );
+    expect(result).toHaveLength(1);
+    expect(result[0].assignment.status).toBe('Rejected');
   });
 
-  it('sorts by due date ascending and descending', () => {
+  it('sorts due dates with null values last', () => {
     const asc = sortRecords(records, 'dueDate', 'asc');
-    for (let i = 1; i < asc.length; i += 1) {
-      expect(new Date(asc[i - 1].assignment.dueDateTime).getTime()).toBeLessThanOrEqual(
-        new Date(asc[i].assignment.dueDateTime).getTime(),
-      );
-    }
+    expect(asc.at(-1)?.assignment.dueDateTime).toBeNull();
+
     const desc = sortRecords(records, 'dueDate', 'desc');
-    expect(desc[0].assignment.dueDateTime).toBe(asc[asc.length - 1].assignment.dueDateTime);
+    expect(desc.at(-1)?.assignment.dueDateTime).toBeNull();
   });
 
   it('sorts by priority weight', () => {
     const sorted = sortRecords(records, 'priority', 'desc');
-    expect(sorted[0].test.priority).toBe('STAT');
+    expect(sorted[0].assignment.priority).toBe('STAT');
   });
 
   it('groups records by analyst, falling back to Unassigned', () => {
     const groups = groupByAnalyst(records);
     expect(groups.has('Unassigned')).toBe(true);
-    expect(groups.get('A. Reid')?.length).toBeGreaterThan(0);
+    expect(groups.get('A. Reid')).toHaveLength(1);
   });
 
-  it('computes summary counts without exposing per-analyst comparisons', () => {
+  it('computes summary counts for the dashboard cards', () => {
     const summary = computeSummary(records);
-    expect(summary.unassigned).toBe(1);
-    expect(summary.overdue).toBeGreaterThanOrEqual(2);
-    expect(summary.blocked).toBeGreaterThanOrEqual(1);
-    expect(summary.completed).toBe(1);
-    // Sanity: the summary object only exposes aggregate keys, not per-analyst data.
-    expect(Object.keys(summary).sort()).toEqual(
-      ['blocked', 'completed', 'overdue', 'totalAssigned', 'unassigned'].sort(),
-    );
+    expect(summary).toEqual({
+      totalAssigned: 4,
+      inProgress: 2,
+      overdue: 1,
+      completed: 1,
+    });
   });
 });
