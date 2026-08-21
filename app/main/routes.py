@@ -478,6 +478,40 @@ def keep_alive():
 
 
 # ---------------------------------------------------------------------------
+# Sample & Test Assignment Dashboard Widget
+# ---------------------------------------------------------------------------
+
+@main_bp.route('/assignments')
+@login_required
+def assignment_dashboard():
+    """Serves the Sample & Test Assignment Dashboard widget.
+    
+    The widget is a standalone React SPA that handles its own state and
+    rendering. It currently uses mock data for demonstration purposes.
+    """
+    # Determine user role for the widget
+    is_supervisor = current_user.has_any_role(
+        Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN
+    )
+    user_role = 'supervisor' if is_supervisor else 'analyst'
+    
+    # User context passed to the widget for RBAC
+    user_context = {
+        'id': current_user.id,
+        'displayName': current_user.full_name or current_user.username,
+        'role': user_role,
+        'canManageAssignments': is_supervisor,
+        'canViewSensitiveData': is_supervisor,
+    }
+    
+    return render_template(
+        'assignment_dashboard.html',
+        user_context=user_context,
+        widget_url=url_for('static', filename='widgets/assignment-dashboard/index.html'),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Quarterly KPI Dashboard
 # ---------------------------------------------------------------------------
 

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Assignment Dashboard - DGC SMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2><i class="bi bi-clipboard2-check"></i> Assignment Dashboard</h2>
+        <p class="text-muted mb-0 mt-1" style="font-size:.83rem;">
+            Manage sample and test assignments
+        </p>
+    </div>
+</div>
+
+<!-- Assignment Dashboard Widget Container -->
+<div id="root" style="min-height: 600px;"></div>
+
+<!-- Widget Stylesheet -->
+<link rel="stylesheet" href="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-CBAWMPj7.css') }}">
+
+<!-- Widget Application Script -->
+<script type="module" src="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-dkDqMkjl.js') }}"></script>
+
+<script>
+  // Pass authenticated user context to the widget via window object
+  window.__ASSIGNMENT_DASHBOARD_USER__ = {{ user_context|tojson }};
+</script>
+{% endblock %}
