@@ -14,14 +14,14 @@
 <!-- Assignment Dashboard Widget Container -->
 <div id="root" style="min-height: 600px;"></div>
 
+<!-- Pass authenticated user context to widget before loading module -->
+<script>
+  window.__ASSIGNMENT_DASHBOARD_USER__ = {{ user_context|tojson }};
+</script>
+
 <!-- Widget Stylesheet -->
 <link rel="stylesheet" href="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-CBAWMPj7.css') }}">
 
 <!-- Widget Application Script -->
 <script type="module" src="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-dkDqMkjl.js') }}"></script>
-
-<script>
-  // Pass authenticated user context to the widget via window object
-  window.__ASSIGNMENT_DASHBOARD_USER__ = {{ user_context|tojson }};
-</script>
 {% endblock %}

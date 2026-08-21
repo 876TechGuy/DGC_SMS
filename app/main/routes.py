@@ -504,11 +504,7 @@ def assignment_dashboard():
         'canViewSensitiveData': is_supervisor,
     }
     
-    return render_template(
-        'assignment_dashboard.html',
-        user_context=user_context,
-        widget_url=url_for('static', filename='widgets/assignment-dashboard/index.html'),
-    )
+    return render_template('assignment_dashboard.html', user_context=user_context)
 
 
 # ---------------------------------------------------------------------------

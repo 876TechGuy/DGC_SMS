@@ -544,12 +544,15 @@
                     </a>
                 </li>
                 {% endif %}
+                {# Assignments dashboard available to analysts and supervisors #}
+                {% if current_user.has_role(Role.CHEMIST) or current_user.has_any_role(Role.OFFICER, Role.SENIOR_CHEMIST, Role.DEPUTY, Role.HOD, Role.ADMIN) %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'main.assignment_dashboard' %}active{% endif %}"
                        href="{{ url_for('main.assignment_dashboard') }}">
                         <i class="bi bi-clipboard2-check"></i> Assignments
                     </a>
                 </li>
+                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'main.notifications' %}active{% endif %}"
                        href="{{ url_for('main.notifications') }}">
