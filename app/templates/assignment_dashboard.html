@@ -19,7 +19,11 @@
   window.__ASSIGNMENT_DASHBOARD_USER__ = {{ user_context|tojson }};
 </script>
 
-<!-- Widget Stylesheet -->
+<!-- Widget Stylesheet
+     Note: Asset filenames are content-hashed by Vite and must be updated
+     whenever the widget is rebuilt. For production deployments, consider
+     using a manifest.json approach to automate this mapping.
+-->
 <link rel="stylesheet" href="{{ url_for('static', filename='widgets/assignment-dashboard/assets/index-CBAWMPj7.css') }}">
 
 <!-- Widget Application Script -->
